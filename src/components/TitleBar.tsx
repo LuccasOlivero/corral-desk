@@ -11,12 +11,15 @@ export function Logo({ size = 20 }: { size?: number }) {
 }
 
 export default function TitleBar() {
-  const { mode, setMode } = useStore();
+  const { mode, setMode, saveStatus } = useStore();
   const w = getCurrentWindow();
   return (
     <div className="titlebar" data-tauri-drag-region>
       <Logo />
       <div className="drag" data-tauri-drag-region />
+      {saveStatus !== "idle" && (
+        <span className="save-status">{saveStatus === "saving" ? "Guardando..." : "Guardado"}</span>
+      )}
       <div className="mode">
         <button aria-pressed={mode === "ink"} onClick={() => setMode("ink")}>ink</button>
         <button aria-pressed={mode === "paper"} onClick={() => setMode("paper")}>paper</button>

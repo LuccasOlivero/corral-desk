@@ -10,9 +10,23 @@ import DragHandle from "@tiptap/extension-drag-handle-react";
 import { common, createLowlight } from "lowlight";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { api } from "../api";
+import { useStore } from "../store";
+import { Extension } from "@tiptap/core";
 import { SlashCommand } from "./slash";
 
 const lowlight = createLowlight(common);
+
+const SaveShortcut = Extension.create({
+  name: "saveShortcut",
+  addKeyboardShortcuts() {
+    return {
+      "Mod-s": () => {
+        this.options.onSave(this.editor);
+        return true;
+      },
+    };
+  },
+});
 
 async function storeImage(file: File): Promise<string> {
   const buf = new Uint8Array(await file.arrayBuffer());
@@ -28,6 +42,17 @@ export default function Editor({ pageId }: { pageId: string }) {
   const idRef = useRef(pageId);
   idRef.current = pageId;
 
+  const setSaveStatus = useStore((s) => s.setSaveStatus);
+
+  const save = (editorInstance: any) => {
+    window.clearTimeout(timer.current);
+    pending.current = false;
+    setSaveStatus("saving");
+    api.updatePage(idRef.current, { content: JSON.stringify(editorInstance.getJSON()), body: editorInstance.getText() })
+      .then(() => { setSaveStatus("saved"); setTimeout(() => setSaveStatus("idle"), 2000); })
+      .catch(() => setSaveStatus("idle"));
+  };
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ codeBlock: false }),
@@ -39,9 +64,21 @@ export default function Editor({ pageId }: { pageId: string }) {
         placeholder: ({ node }) => (node.type.name === "heading" ? "Título" : "Escribe '/' para ver los comandos…"),
       }),
       SlashCommand,
+      SaveShortcut.configure({ onSave: save }),
     ],
     content: "",
     editorProps: {
+      handleKeyDown: (_view, event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          // el editor se captura en el evento si usamos un ref, pero podemos disparar un evento global o solo guardarlo.
+          // dado que no tenemos el objeto editor actualizado acá en el closure inicial, vamos a despachar un evento
+          // global y escucharlo en un useEffect, o simplemente ignorarlo acá porque App.tsx ya hace preventDefault
+          // y podemos guardar usando un atajo nativo.
+          return true;
+        }
+        return false;
+      },
       handlePaste: (view, event) => {
         const files = Array.from(event.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
         if (!files.length) return false;
@@ -67,12 +104,11 @@ export default function Editor({ pageId }: { pageId: string }) {
     },
     onUpdate: ({ editor }) => {
       pending.current = true;
+      setSaveStatus("idle");
       window.clearTimeout(timer.current);
-      const id = idRef.current;
       timer.current = window.setTimeout(() => {
-        pending.current = false;
-        api.updatePage(id, { content: JSON.stringify(editor.getJSON()), body: editor.getText() });
-      }, 400);
+        save(editor);
+      }, 600);
     },
   });
 

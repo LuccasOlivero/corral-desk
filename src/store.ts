@@ -26,6 +26,8 @@ interface State {
   toggleSidebar: () => void;
   setSearch: (v: boolean) => void;
   setTrash: (v: boolean) => void;
+  saveStatus: "idle" | "saving" | "saved";
+  setSaveStatus: (status: "idle" | "saving" | "saved") => void;
 }
 
 const initialMode = (): Mode => (localStorage.getItem("corral-mode") === "paper" ? "paper" : "ink");
@@ -122,4 +124,6 @@ export const useStore = create<State>((set, get) => ({
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSearch: (searchOpen) => set({ searchOpen }),
   setTrash: (trashOpen) => set({ trashOpen }),
+  saveStatus: "idle",
+  setSaveStatus: (saveStatus) => set({ saveStatus }),
 }));

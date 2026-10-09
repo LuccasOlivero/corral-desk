@@ -114,10 +114,10 @@ fn save_image(s: tauri::State<AppState>, bytes: Vec<u8>, ext: String) -> R<Strin
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let dir = app.path().app_data_dir()?;
+            let dir = app.path().app_data_dir().expect("app_data_dir");
             let assets = dir.join("assets");
-            std::fs::create_dir_all(&assets)?;
-            let conn = db::open(&dir.join("corral.db"))?;
+            std::fs::create_dir_all(&assets).expect("create_dir assets");
+            let conn = db::open(&dir.join("corral.db")).expect("open db");
             app.manage(AppState { conn: Mutex::new(conn), assets_dir: assets });
             Ok(())
         })
@@ -125,6 +125,7 @@ pub fn run() {
             has_user, register, login, list_pages, get_content, create_page, update_page,
             move_page, trash_page, restore_page, purge_page, search, save_image
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!()).unwrap_or_else(|e| println!("=== ERROR: {} ===", e));
+        
 }
+

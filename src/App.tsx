@@ -24,6 +24,7 @@ function Shell({ onLock }: { onLock: () => void }) {
       if (!e.ctrlKey && !e.metaKey) return;
       const k = e.key.toLowerCase();
       if (k === "k") { e.preventDefault(); setSearch(true); }
+      else if (k === "s") { e.preventDefault(); /* solo interceptar para evitar Save As, el autosave ya guarda */ }
       else if (k === "n" && !e.shiftKey) { e.preventDefault(); newPage(null); }
       else if (e.key === "\\") { e.preventDefault(); toggleSidebar(); }
       else if (k === "l" && e.shiftKey) { e.preventDefault(); setMode(mode === "ink" ? "paper" : "ink"); }
