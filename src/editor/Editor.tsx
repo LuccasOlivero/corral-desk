@@ -61,7 +61,7 @@ export default function Editor({ pageId }: { pageId: string }) {
       TaskItem.configure({ nested: true }),
       Image,
       Placeholder.configure({
-        placeholder: ({ node }) => (node.type.name === "heading" ? "Título" : "Escribe '/' para ver los comandos…"),
+        placeholder: ({ node }) => (node.type.name === "heading" ? "Encabezado" : "Escribe '/' para ver los comandos…"),
       }),
       SlashCommand,
       SaveShortcut.configure({ onSave: save }),

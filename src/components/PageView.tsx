@@ -73,6 +73,10 @@ export default function PageView({ id }: { id: string }) {
           placeholder="Sin título"
           value={title}
           onChange={(e) => onTitle(e.target.value)}
+          onBlur={() => {
+            window.clearTimeout(t.current);
+            patch(id, { title });
+          }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); document.querySelector<HTMLElement>(".tiptap")?.focus(); } }}
         />
         <Editor key={id} pageId={id} />
