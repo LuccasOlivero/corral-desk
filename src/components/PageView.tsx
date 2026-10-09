@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import Editor from "../editor/Editor";
+import { api } from "../api";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 const EMOJIS = "📄 📝 📒 📚 📌 📎 ✅ ⭐ 💡 🔥 🚀 🎯 🧠 💻 🛠️ 🧪 🎨 🎵 🎬 📷 🏠 🌱 🌍 ☕ 🍎 ✈️ 💰 📅 ❤️ 🐏 🐑 🧩 🔖 📊 🗂️ 🔒 🔑 🎓 🏋️ 🍳".split(" ");
 
@@ -20,6 +22,7 @@ export default function PageView({ id }: { id: string }) {
   const [picker, setPicker] = useState(false);
   const t = useRef<number | undefined>(undefined);
   const titleRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setTitle(page?.title ?? "");
@@ -39,13 +42,23 @@ export default function PageView({ id }: { id: string }) {
     const i = COVERS.indexOf(page.cover ?? "");
     patch(id, { cover: COVERS[(i + 1) % COVERS.length] });
   };
+  const handleUploadCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg");
+    const path = await api.saveImage(Array.from(buf), ext);
+    const src = convertFileSrc(path);
+    patch(id, { cover: `url('${src}')` });
+  };
 
   return (
     <>
       {page.cover && (
         <div className="cover" style={{ backgroundImage: page.cover }}>
           <div className="cover-actions">
-            <button className="btn" onClick={cycleCover}>Cambiar</button>
+            <button className="btn" onClick={() => fileInputRef.current?.click()}>Cambiar</button>
+            <input type="file" accept="image/*" ref={fileInputRef} style={{ display: "none" }} onChange={handleUploadCover} />
             <button className="btn" onClick={() => patch(id, { cover: "" })}>Quitar</button>
           </div>
         </div>

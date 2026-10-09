@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
 import StarterKit from "@tiptap/starter-kit";
 import { TaskList } from "@tiptap/extension-task-list";
 import { TaskItem } from "@tiptap/extension-task-item";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
+import Highlight from "@tiptap/extension-highlight";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import DragHandle from "@tiptap/extension-drag-handle-react";
 import { common, createLowlight } from "lowlight";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import Details, { DetailsSummary, DetailsContent } from "@tiptap/extension-details";
 import { api } from "../api";
 import { useStore } from "../store";
 import { Extension } from "@tiptap/core";
@@ -60,6 +63,10 @@ export default function Editor({ pageId }: { pageId: string }) {
       TaskList,
       TaskItem.configure({ nested: true }),
       Image,
+      Highlight.configure({ multicolor: true }),
+      Details.configure({ persist: true, HTMLAttributes: { class: "details" } }),
+      DetailsSummary,
+      DetailsContent,
       Placeholder.configure({
         placeholder: ({ node }) => (node.type.name === "heading" ? "Encabezado" : "Escribe '/' para ver los comandos…"),
       }),
@@ -137,6 +144,16 @@ export default function Editor({ pageId }: { pageId: string }) {
 
   return (
     <div style={{ opacity: ready ? 1 : 0 }}>
+      {editor && (
+        <BubbleMenu editor={editor} className="bubble-menu">
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#fef08a' }).run()} className={editor.isActive('highlight', { color: '#fef08a' }) ? 'is-active' : ''} style={{ backgroundColor: '#fef08a' }}>A</button>
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#bbf7d0' }).run()} className={editor.isActive('highlight', { color: '#bbf7d0' }) ? 'is-active' : ''} style={{ backgroundColor: '#bbf7d0' }}>A</button>
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#bfdbfe' }).run()} className={editor.isActive('highlight', { color: '#bfdbfe' }) ? 'is-active' : ''} style={{ backgroundColor: '#bfdbfe' }}>A</button>
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#fbcfe8' }).run()} className={editor.isActive('highlight', { color: '#fbcfe8' }) ? 'is-active' : ''} style={{ backgroundColor: '#fbcfe8' }}>A</button>
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#e9d5ff' }).run()} className={editor.isActive('highlight', { color: '#e9d5ff' }) ? 'is-active' : ''} style={{ backgroundColor: '#e9d5ff' }}>A</button>
+          <button onClick={() => editor.chain().focus().unsetHighlight().run()} className="rm-hl">Quitar</button>
+        </BubbleMenu>
+      )}
       {editor && (
         <DragHandle editor={editor}>
           <div className="drag-handle">⋮⋮</div>

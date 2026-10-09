@@ -21,8 +21,16 @@ function Shell({ onLock }: { onLock: () => void }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
       const k = e.key.toLowerCase();
+
+      if (e.altKey && k === "c") {
+        e.preventDefault();
+        toggleSidebar();
+        return;
+      }
+
+      if (!e.ctrlKey && !e.metaKey) return;
+      
       if (k === "k") { e.preventDefault(); setSearch(true); }
       else if (k === "s") { e.preventDefault(); /* solo interceptar para evitar Save As, el autosave ya guarda */ }
       else if (k === "n" && !e.shiftKey) { e.preventDefault(); newPage(null); }

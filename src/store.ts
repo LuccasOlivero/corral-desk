@@ -44,8 +44,27 @@ export const useStore = create<State>((set, get) => ({
   load: async () => {
     const pages = await api.listPages();
     const { activeId } = get();
-    const valid = activeId && pages.some((p) => p.id === activeId && p.deletedAt == null);
-    set({ pages, activeId: valid ? activeId : null });
+    
+    let targetId = activeId;
+    const valid = targetId && pages.some((p) => p.id === targetId && p.deletedAt == null);
+    
+    if (!valid) {
+      const alivePages = pages.filter((p) => p.deletedAt == null);
+      if (alivePages.length > 0) {
+        const mostRecent = alivePages.reduce((latest, p) => p.updatedAt > latest.updatedAt ? p : latest, alivePages[0]);
+        targetId = mostRecent.id;
+      } else {
+        targetId = null;
+      }
+    }
+
+    if (targetId && targetId !== activeId) {
+      localStorage.setItem("corral-active", targetId);
+    } else if (!targetId) {
+      localStorage.removeItem("corral-active");
+    }
+
+    set({ pages, activeId: targetId });
   },
 
   open: (id) => {

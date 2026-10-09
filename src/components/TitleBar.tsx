@@ -11,10 +11,13 @@ export function Logo({ size = 20 }: { size?: number }) {
 }
 
 export default function TitleBar() {
-  const { mode, setMode, saveStatus } = useStore();
+  const { mode, setMode, saveStatus, sidebarOpen, toggleSidebar } = useStore();
   const w = getCurrentWindow();
   return (
     <div className="titlebar" data-tauri-drag-region>
+      <button className="tb-btn" title="Mostrar/Ocultar Panel (\)" onClick={() => toggleSidebar()}>
+        {sidebarOpen ? "◀" : "▶"}
+      </button>
       <Logo />
       <div className="drag" data-tauri-drag-region />
       {saveStatus !== "idle" && (

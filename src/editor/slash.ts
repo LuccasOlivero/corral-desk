@@ -19,6 +19,7 @@ export const ITEMS: Item[] = [
   { title: "Lista", desc: "Lista con viñetas", glyph: "•", keywords: "lista viñetas bullet ul", run: (e, r) => chain(e, r).toggleBulletList().run() },
   { title: "Lista numerada", desc: "Lista ordenada", glyph: "1.", keywords: "numerada ordenada number ol", run: (e, r) => chain(e, r).toggleOrderedList().run() },
   { title: "Tareas", desc: "Lista con casillas", glyph: "☐", keywords: "tareas todo check task", run: (e, r) => chain(e, r).toggleTaskList().run() },
+  { title: "Desplegable", desc: "Sección colapsable", glyph: "▶", keywords: "desplegable colapsable toggle details", run: (e, r) => chain(e, r).setDetails().run() },
   { title: "Cita", desc: "Texto destacado", glyph: "❝", keywords: "cita quote blockquote", run: (e, r) => chain(e, r).toggleBlockquote().run() },
   { title: "Código", desc: "Bloque de código", glyph: "</>", keywords: "codigo code pre", run: (e, r) => chain(e, r).toggleCodeBlock().run() },
   { title: "Divisor", desc: "Línea horizontal", glyph: "—", keywords: "divisor linea hr separator", run: (e, r) => chain(e, r).setHorizontalRule().run() },
