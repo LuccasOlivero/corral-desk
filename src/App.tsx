@@ -57,15 +57,27 @@ function Shell({ onLock }: { onLock: () => void }) {
 }
 
 export default function App() {
-  const [unlocked, setUnlocked] = useState(false);
+  const [unlocked, setUnlocked] = useState(() => {
+    return localStorage.getItem("corral-session-open") === "true";
+  });
   const mode = useStore((s) => s.mode);
 
   useEffect(() => { document.documentElement.setAttribute("data-mode", mode); }, [mode]);
 
+  const handleUnlock = () => {
+    localStorage.setItem("corral-session-open", "true");
+    setUnlocked(true);
+  };
+
+  const handleLock = () => {
+    localStorage.removeItem("corral-session-open");
+    setUnlocked(false);
+  };
+
   return (
     <div className="app">
       <TitleBar />
-      {unlocked ? <Shell onLock={() => setUnlocked(false)} /> : <Lock onUnlock={() => setUnlocked(true)} />}
+      {unlocked ? <Shell onLock={handleLock} /> : <Lock onUnlock={handleUnlock} />}
     </div>
   );
 }
