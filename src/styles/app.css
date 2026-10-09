@@ -236,12 +236,13 @@ input { font: inherit; color: inherit; }
   opacity: 0.7;
 }
 
-.tiptap details { margin: 4px 0; background: transparent; padding: 0; border: none; }
-.tiptap summary { font-weight: 600; cursor: pointer; list-style: none; outline: none; position: relative; display: flex; align-items: flex-start; gap: 6px; }
+.tiptap .details { position: relative; margin: 4px 0; background: transparent; padding: 0; border: none; }
+.tiptap .details > button { position: absolute; top: 0; left: 0; width: 24px; height: 28px; display: flex; align-items: center; justify-content: center; z-index: 1; }
+.tiptap .details > button::before { content: "▶"; font-size: 10px; color: var(--faint2); transition: transform 0.1s ease; transform: rotate(0deg); }
+.tiptap .details.is-open > button::before { transform: rotate(90deg); }
+.tiptap summary { font-weight: 600; list-style: none; outline: none; padding-left: 24px; margin: 0; line-height: 28px; }
 .tiptap summary::-webkit-details-marker { display: none; }
-.tiptap summary::before { content: "▶"; font-size: 10px; color: var(--faint2); display: inline-block; transition: transform 0.1s ease; transform: rotate(0deg); margin-top: 6px; }
-.tiptap details[open] > summary::before { transform: rotate(90deg); }
-.tiptap details > div[data-type="detailsContent"] { margin-top: 2px; padding-left: 24px; }
+.tiptap div[data-type="detailsContent"] { margin-top: 2px; padding-left: 24px; }
 
 
 /* ====== Bubble Menu ====== */

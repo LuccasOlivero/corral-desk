@@ -146,11 +146,11 @@ export default function Editor({ pageId }: { pageId: string }) {
     <div style={{ opacity: ready ? 1 : 0 }}>
       {editor && (
         <BubbleMenu editor={editor} className="bubble-menu">
-          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#fef08a' }).run()} className={editor.isActive('highlight', { color: '#fef08a' }) ? 'is-active' : ''} style={{ backgroundColor: '#fef08a' }}>A</button>
-          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#bbf7d0' }).run()} className={editor.isActive('highlight', { color: '#bbf7d0' }) ? 'is-active' : ''} style={{ backgroundColor: '#bbf7d0' }}>A</button>
-          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#bfdbfe' }).run()} className={editor.isActive('highlight', { color: '#bfdbfe' }) ? 'is-active' : ''} style={{ backgroundColor: '#bfdbfe' }}>A</button>
-          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#fbcfe8' }).run()} className={editor.isActive('highlight', { color: '#fbcfe8' }) ? 'is-active' : ''} style={{ backgroundColor: '#fbcfe8' }}>A</button>
-          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#e9d5ff' }).run()} className={editor.isActive('highlight', { color: '#e9d5ff' }) ? 'is-active' : ''} style={{ backgroundColor: '#e9d5ff' }}>A</button>
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#fef08a80' }).run()} className={editor.isActive('highlight', { color: '#fef08a80' }) ? 'is-active' : ''} style={{ backgroundColor: '#fef08a' }}>A</button>
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#bbf7d080' }).run()} className={editor.isActive('highlight', { color: '#bbf7d080' }) ? 'is-active' : ''} style={{ backgroundColor: '#bbf7d0' }}>A</button>
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#bfdbfe80' }).run()} className={editor.isActive('highlight', { color: '#bfdbfe80' }) ? 'is-active' : ''} style={{ backgroundColor: '#bfdbfe' }}>A</button>
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#fbcfe880' }).run()} className={editor.isActive('highlight', { color: '#fbcfe880' }) ? 'is-active' : ''} style={{ backgroundColor: '#fbcfe8' }}>A</button>
+          <button onClick={() => editor.chain().focus().toggleHighlight({ color: '#e9d5ff80' }).run()} className={editor.isActive('highlight', { color: '#e9d5ff80' }) ? 'is-active' : ''} style={{ backgroundColor: '#e9d5ff' }}>A</button>
           <button onClick={() => editor.chain().focus().unsetHighlight().run()} className="rm-hl">Quitar</button>
         </BubbleMenu>
       )}
