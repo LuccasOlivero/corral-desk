@@ -11,7 +11,11 @@ export function Logo({ size = 20 }: { size?: number }) {
 }
 
 export default function TitleBar() {
-  const { mode, setMode, saveStatus, sidebarOpen, toggleSidebar } = useStore();
+  const mode = useStore((s) => s.mode);
+  const setMode = useStore((s) => s.setMode);
+  const saveStatus = useStore((s) => s.saveStatus);
+  const sidebarOpen = useStore((s) => s.sidebarOpen);
+  const toggleSidebar = useStore((s) => s.toggleSidebar);
   const w = getCurrentWindow();
   return (
     <div className="titlebar" data-tauri-drag-region>

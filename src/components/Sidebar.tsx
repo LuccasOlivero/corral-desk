@@ -16,7 +16,14 @@ function Row({
   dragId: string | null;
   setDragId: (id: string | null) => void;
 }) {
-  const { activeId, open, expanded, toggleExpand, newPage, trash, move } = useStore();
+  const activeId = useStore((s) => s.activeId);
+  const open = useStore((s) => s.open);
+  const expanded = useStore((s) => s.expanded);
+  const toggleExpand = useStore((s) => s.toggleExpand);
+  const newPage = useStore((s) => s.newPage);
+  const trash = useStore((s) => s.trash);
+  const move = useStore((s) => s.move);
+  
   const p = node.page;
   const isOpen = !!expanded[p.id];
   const has = node.children.length > 0;
@@ -78,7 +85,13 @@ function Row({
 }
 
 export default function Sidebar({ onLock }: { onLock: () => void }) {
-  const { pages, newPage, open, activeId, setSearch, setTrash } = useStore();
+  const pages = useStore((s) => s.pages);
+  const newPage = useStore((s) => s.newPage);
+  const open = useStore((s) => s.open);
+  const activeId = useStore((s) => s.activeId);
+  const setSearch = useStore((s) => s.setSearch);
+  const setTrash = useStore((s) => s.setTrash);
+
   const tree = useMemo(() => buildTree(pages), [pages]);
   const favs = useMemo(() => pages.filter((p) => p.favorite && p.deletedAt == null), [pages]);
   const [drop, setDrop] = useState<{ id: string; zone: Zone } | null>(null);

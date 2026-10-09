@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import { useStore } from "../store";
-import Editor from "../editor/Editor";
 import { api } from "../api";
 import { convertFileSrc } from "@tauri-apps/api/core";
+
+const Editor = lazy(() => import("../editor/Editor"));
 
 const EMOJIS = "📄 📝 📒 📚 📌 📎 ✅ ⭐ 💡 🔥 🚀 🎯 🧠 💻 🛠️ 🧪 🎨 🎵 🎬 📷 🏠 🌱 🌍 ☕ 🍎 ✈️ 💰 📅 ❤️ 🐏 🐑 🧩 🔖 📊 🗂️ 🔒 🔑 🎓 🏋️ 🍳".split(" ");
 
@@ -92,7 +93,9 @@ export default function PageView({ id }: { id: string }) {
           }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); document.querySelector<HTMLElement>(".tiptap")?.focus(); } }}
         />
-        <Editor key={id} pageId={id} />
+        <Suspense fallback={null}>
+          <Editor key={id} pageId={id} />
+        </Suspense>
       </div>
     </>
   );

@@ -3,7 +3,9 @@ import { api, SearchHit } from "../api";
 import { useStore } from "../store";
 
 export function QuickSearch() {
-  const { setSearch, open, pages } = useStore();
+  const setSearch = useStore((s) => s.setSearch);
+  const open = useStore((s) => s.open);
+  const pages = useStore((s) => s.pages);
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [sel, setSel] = useState(0);
@@ -59,7 +61,10 @@ export function QuickSearch() {
 }
 
 export function Trash() {
-  const { pages, setTrash, restore, purge } = useStore();
+  const pages = useStore((s) => s.pages);
+  const setTrash = useStore((s) => s.setTrash);
+  const restore = useStore((s) => s.restore);
+  const purge = useStore((s) => s.purge);
   const items = pages.filter((p) => p.deletedAt != null).sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
   return (
     <div className="overlay" onMouseDown={() => setTrash(false)}>

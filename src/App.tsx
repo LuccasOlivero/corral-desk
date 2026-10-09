@@ -11,11 +11,23 @@ import { useStore } from "./store";
 import TitleBar from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
 import PageView from "./components/PageView";
-import { QuickSearch, Trash } from "./components/Modals";
+import { Suspense, lazy } from "react";
 import Lock from "./screens/Lock";
 
+const QuickSearch = lazy(() => import("./components/Modals").then(m => ({ default: m.QuickSearch })));
+const Trash = lazy(() => import("./components/Modals").then(m => ({ default: m.Trash })));
+
 function Shell({ onLock }: { onLock: () => void }) {
-  const { load, activeId, sidebarOpen, searchOpen, trashOpen, newPage, toggleSidebar, setSearch, mode, setMode } = useStore();
+  const load = useStore((s) => s.load);
+  const activeId = useStore((s) => s.activeId);
+  const sidebarOpen = useStore((s) => s.sidebarOpen);
+  const searchOpen = useStore((s) => s.searchOpen);
+  const trashOpen = useStore((s) => s.trashOpen);
+  const newPage = useStore((s) => s.newPage);
+  const toggleSidebar = useStore((s) => s.toggleSidebar);
+  const setSearch = useStore((s) => s.setSearch);
+  const mode = useStore((s) => s.mode);
+  const setMode = useStore((s) => s.setMode);
 
   useEffect(() => { load(); }, [load]);
 
@@ -58,8 +70,10 @@ function Shell({ onLock }: { onLock: () => void }) {
           )}
         </main>
       </div>
-      {searchOpen && <QuickSearch />}
-      {trashOpen && <Trash />}
+      <Suspense fallback={null}>
+        {searchOpen && <QuickSearch />}
+        {trashOpen && <Trash />}
+      </Suspense>
     </>
   );
 }
