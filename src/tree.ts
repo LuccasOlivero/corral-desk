@@ -50,3 +50,31 @@ export function isDescendant(pages: Node[], id: string, maybeAncestor: string): 
   }
   return false;
 }
+
+/** Obtiene en O(N) el conjunto de IDs del subárbol (incluyendo `rootId`). */
+export function getDescendantIds(pages: Node[], rootId: string): Set<string> {
+  const childrenByParent = new Map<string, string[]>();
+  for (const p of pages) {
+    if (p.parentId) {
+      let list = childrenByParent.get(p.parentId);
+      if (!list) {
+        list = [];
+        childrenByParent.set(p.parentId, list);
+      }
+      list.push(p.id);
+    }
+  }
+  const result = new Set<string>();
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const cur = stack.pop()!;
+    if (result.has(cur)) continue;
+    result.add(cur);
+    const kids = childrenByParent.get(cur);
+    if (kids) {
+      for (const k of kids) stack.push(k);
+    }
+  }
+  return result;
+}
+

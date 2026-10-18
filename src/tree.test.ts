@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTree, isDescendant, positionBetween } from "./tree";
+import { buildTree, getDescendantIds, isDescendant, positionBetween } from "./tree";
 
 const p = (id: string, parentId: string | null, position: number, deletedAt: number | null = null) => ({
   id, parentId, position, deletedAt,
@@ -27,10 +27,13 @@ describe("positionBetween", () => {
   });
 });
 
-describe("isDescendant", () => {
-  it("detecta ancestros", () => {
-    const pages = [p("a", null, 1), p("b", "a", 1), p("c", "b", 1)];
+describe("isDescendant & getDescendantIds", () => {
+  it("detecta ancestros y recolecta el subárbol en O(N)", () => {
+    const pages = [p("a", null, 1), p("b", "a", 1), p("c", "b", 1), p("d", null, 2)];
     expect(isDescendant(pages, "c", "a")).toBe(true);
     expect(isDescendant(pages, "a", "c")).toBe(false);
+    expect(Array.from(getDescendantIds(pages, "a")).sort()).toEqual(["a", "b", "c"]);
+    expect(Array.from(getDescendantIds(pages, "d"))).toEqual(["d"]);
   });
 });
+

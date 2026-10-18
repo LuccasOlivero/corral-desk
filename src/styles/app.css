@@ -129,12 +129,37 @@ input { font: inherit; color: inherit; }
 .btn.primary { background: var(--spot); color: var(--spot-ink); border-color: var(--spot); }
 .btn.danger:hover { background: var(--red); border-color: var(--red); color: #17171a; }
 
-.cover { height: 200px; background-size: cover; background-position: center; position: relative; border-bottom: 1px solid var(--line2); }
+.page-ghost {
+  position: fixed;
+  right: -14%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(880px, 62vw);
+  height: min(880px, 62vw);
+  color: var(--mass);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.cover { height: 200px; background-size: cover; background-position: center; position: relative; z-index: 1; border-bottom: 1px solid var(--line2); }
 .cover-actions { position: absolute; right: 16px; bottom: 10px; display: none; gap: 6px; }
 .cover:hover .cover-actions { display: flex; }
 .cover-actions .btn { background: var(--bg); }
-.page { max-width: 760px; margin: 0 auto; padding: 56px 48px 140px; }
+.page { max-width: 760px; margin: 0 auto; padding: 56px 48px 140px; position: relative; z-index: 1; }
 .page.has-cover { padding-top: 28px; }
+.page-breadcrumbs {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-bottom: 14px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--faint);
+}
+.crumb-group { display: inline-flex; align-items: center; gap: 4px; }
+.crumb {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px;
+  color: var(--dim); border: 1px solid transparent;
+}
+button.crumb:hover { background: var(--mass); color: var(--ink); border-color: var(--line2); }
+.crumb.current { color: var(--faint2); cursor: default; }
+.crumb-sep { color: var(--faint2); user-select: none; }
+
 .page-ico { font-size: 56px; line-height: 1; cursor: pointer; width: fit-content; margin-bottom: 6px; user-select: none; }
 .page-ico:hover { opacity: .8; }
 .page-tools { display: flex; gap: 6px; margin-bottom: 10px; opacity: 0; transition: opacity .1s; }
@@ -152,6 +177,24 @@ input { font: inherit; color: inherit; }
 .emoji-pop button { font-size: 20px; padding: 3px; }
 .emoji-pop button:hover { background: var(--mass); }
 .emoji-pop .rm { grid-column: 1 / -1; font-family: var(--mono); font-size: 11px; color: var(--faint); text-align: left; padding: 4px; }
+
+/* ====== Bloques de Subpágina ====== */
+.page-subpages { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.subpage-block-wrapper { margin: 4px 0; }
+.subpage-block {
+  display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+  background: var(--panel); border: 1px solid var(--line2); border-left: 3px solid var(--spot);
+  color: var(--ink); cursor: pointer; user-select: none; transition: background .1s, border-color .1s;
+}
+.subpage-block:hover { background: var(--mass); border-color: var(--spot); }
+.subpage-block-wrapper.ProseMirror-selectednode .subpage-block { outline: 1px solid var(--spot); }
+.subpage-ico { font-size: 16px; line-height: 1; flex: none; }
+.subpage-title { flex: 1; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subpage-actions { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; color: var(--faint2); }
+.subpage-actions button { opacity: 0; color: var(--faint2); padding: 2px 5px; font-family: var(--mono); }
+.subpage-block:hover .subpage-actions button { opacity: 1; }
+.subpage-actions button:hover { color: var(--red); }
+.subpage-arrow { color: var(--spot); font-family: var(--mono); font-size: 12px; }
 
 /* ====== Editor ====== */
 .tiptap { outline: none; min-height: 40vh; position: relative; }
@@ -244,11 +287,9 @@ input { font: inherit; color: inherit; }
 .tiptap summary::-webkit-details-marker { display: none; }
 .tiptap div[data-type="detailsContent"] { margin-top: 2px; padding-left: 24px; }
 
-
 /* ====== Bubble Menu ====== */
 .bubble-menu { display: flex; background: var(--panel); padding: 4px; border-radius: 6px; border: 1px solid var(--line2); box-shadow: 0 4px 12px rgba(0,0,0,0.15); gap: 4px; }
 .bubble-menu button { width: 24px; height: 24px; border-radius: 4px; border: 1px solid var(--line2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; color: #111; }
 .bubble-menu button:hover { opacity: 0.8; }
 .bubble-menu button.is-active { border-color: var(--ink); transform: scale(1.1); }
 .bubble-menu .rm-hl { width: auto; padding: 0 8px; font-weight: normal; font-size: 11px; background: var(--mass); color: var(--ink); }
-

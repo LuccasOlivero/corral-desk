@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -52,6 +52,9 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
 pub fn init(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;
+         PRAGMA temp_store=MEMORY;
+         PRAGMA cache_size=-8000;
          PRAGMA foreign_keys=ON;
          CREATE TABLE IF NOT EXISTS user(
             id INTEGER PRIMARY KEY CHECK(id=1), email TEXT NOT NULL, pass_hash TEXT NOT NULL);
@@ -67,6 +70,8 @@ pub fn init(conn: &Connection) -> rusqlite::Result<()> {
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL);
          CREATE INDEX IF NOT EXISTS idx_page_parent ON page(parent_id);
+         CREATE INDEX IF NOT EXISTS idx_page_parent_pos ON page(parent_id, position);
+         CREATE INDEX IF NOT EXISTS idx_page_order ON page(position, created_at);
          CREATE VIRTUAL TABLE IF NOT EXISTS page_fts USING fts5(page_id UNINDEXED, title, body);",
     )
 }
@@ -88,36 +93,40 @@ fn row_meta(r: &rusqlite::Row) -> rusqlite::Result<PageMeta> {
 }
 
 pub fn list_pages(conn: &Connection) -> rusqlite::Result<Vec<PageMeta>> {
-    let mut st = conn.prepare(&format!("SELECT {META} FROM page ORDER BY position, created_at"))?;
+    let mut st = conn.prepare_cached(&format!("SELECT {META} FROM page ORDER BY position, created_at"))?;
     let rows = st.query_map([], row_meta)?;
     rows.collect()
 }
 
+#[cfg(test)]
 pub fn get_page_meta(conn: &Connection, id: &str) -> rusqlite::Result<PageMeta> {
-    conn.query_row(&format!("SELECT {META} FROM page WHERE id=?1"), [id], row_meta)
+    let mut st = conn.prepare_cached(&format!("SELECT {META} FROM page WHERE id=?1"))?;
+    st.query_row([id], row_meta)
 }
 
 pub fn get_content(conn: &Connection, id: &str) -> rusqlite::Result<String> {
-    conn.query_row("SELECT content FROM page WHERE id=?1", [id], |r| r.get(0))
+    let mut st = conn.prepare_cached("SELECT content FROM page WHERE id=?1")?;
+    st.query_row([id], |r| r.get(0))
 }
 
 pub fn create_page(conn: &Connection, parent_id: Option<String>) -> rusqlite::Result<PageMeta> {
     let id = uuid::Uuid::new_v4().to_string();
     let now = now_ms();
-    let pos: f64 = conn.query_row(
-        "SELECT COALESCE(MAX(position),0)+1 FROM page WHERE parent_id IS ?1",
-        params![parent_id],
-        |r| r.get(0),
-    )?;
-    conn.execute(
-        "INSERT INTO page(id,parent_id,title,position,created_at,updated_at) VALUES(?1,?2,'',?3,?4,?4)",
-        params![id, parent_id, pos, now],
-    )?;
-    conn.execute(
-        "INSERT INTO page_fts(page_id,title,body) VALUES(?1,'','')",
-        [&id],
-    )?;
-    get_page_meta(conn, &id)
+    let tx = conn.unchecked_transaction()?;
+    let pos: f64 = tx
+        .prepare_cached("SELECT COALESCE(MAX(position),0)+1 FROM page WHERE parent_id IS ?1")?
+        .query_row(params![parent_id], |r| r.get(0))?;
+    let meta = tx
+        .prepare_cached(&format!(
+            "INSERT INTO page(id,parent_id,title,position,created_at,updated_at)
+             VALUES(?1,?2,'',?3,?4,?4)
+             RETURNING {META}"
+        ))?
+        .query_row(params![id, parent_id, pos, now], row_meta)?;
+    tx.prepare_cached("INSERT INTO page_fts(page_id,title,body) VALUES(?1,'','')")?
+        .execute([&id])?;
+    tx.commit()?;
+    Ok(meta)
 }
 
 fn nz(s: String) -> Option<String> {
@@ -126,39 +135,61 @@ fn nz(s: String) -> Option<String> {
 
 pub fn update_page(conn: &Connection, id: &str, p: PagePatch) -> rusqlite::Result<PageMeta> {
     let now = now_ms();
-    if let Some(v) = p.title.as_ref() {
-        conn.execute("UPDATE page SET title=?1 WHERE id=?2", params![v, id])?;
-        conn.execute("UPDATE page_fts SET title=?1 WHERE page_id=?2", params![v, id])?;
+    let has_title = p.title.is_some();
+    let has_icon = p.icon.is_some();
+    let icon_val = p.icon.and_then(nz);
+    let has_cover = p.cover.is_some();
+    let cover_val = p.cover.and_then(nz);
+    let has_content = p.content.is_some();
+    let has_body = p.body.is_some();
+    let has_fav = p.favorite.is_some();
+    let fav_val = p.favorite.map(|v| v as i64);
+
+    let tx = conn.unchecked_transaction()?;
+    let meta = tx
+        .prepare_cached(&format!(
+            "UPDATE page SET
+                title = CASE WHEN ?1 THEN ?2 ELSE title END,
+                icon = CASE WHEN ?3 THEN ?4 ELSE icon END,
+                cover = CASE WHEN ?5 THEN ?6 ELSE cover END,
+                content = CASE WHEN ?7 THEN ?8 ELSE content END,
+                favorite = CASE WHEN ?9 THEN ?10 ELSE favorite END,
+                updated_at = ?11
+             WHERE id = ?12
+             RETURNING {META}"
+        ))?
+        .query_row(
+            params![
+                has_title,
+                p.title.as_deref(),
+                has_icon,
+                icon_val,
+                has_cover,
+                cover_val,
+                has_content,
+                p.content.as_deref(),
+                has_fav,
+                fav_val,
+                now,
+                id
+            ],
+            row_meta,
+        )?;
+
+    if has_title || has_body {
+        tx.prepare_cached(
+            "UPDATE page_fts SET
+                title = CASE WHEN ?1 THEN ?2 ELSE title END,
+                body = CASE WHEN ?3 THEN ?4 ELSE body END
+             WHERE page_id = ?5",
+        )?
+        .execute(params![has_title, p.title.as_deref(), has_body, p.body.as_deref(), id])?;
     }
-    if let Some(v) = p.icon {
-        conn.execute("UPDATE page SET icon=?1 WHERE id=?2", params![nz(v), id])?;
-    }
-    if let Some(v) = p.cover {
-        conn.execute("UPDATE page SET cover=?1 WHERE id=?2", params![nz(v), id])?;
-    }
-    if let Some(v) = p.content {
-        conn.execute("UPDATE page SET content=?1 WHERE id=?2", params![v, id])?;
-    }
-    if let Some(v) = p.body {
-        conn.execute("UPDATE page_fts SET body=?1 WHERE page_id=?2", params![v, id])?;
-    }
-    if let Some(v) = p.favorite {
-        conn.execute("UPDATE page SET favorite=?1 WHERE id=?2", params![v as i64, id])?;
-    }
-    conn.execute("UPDATE page SET updated_at=?1 WHERE id=?2", params![now, id])?;
-    get_page_meta(conn, id)
+    tx.commit()?;
+    Ok(meta)
 }
 
-fn descendants(conn: &Connection, id: &str) -> rusqlite::Result<Vec<String>> {
-    let mut st = conn.prepare(
-        "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL SELECT p.id FROM page p JOIN d ON p.parent_id=d.id)
-         SELECT id FROM d",
-    )?;
-    let rows = st.query_map([id], |r| r.get(0))?;
-    rows.collect()
-}
-
-/// Evita mover una página dentro de sí misma o de sus descendientes.
+/// Evita mover una página dentro de sí misma o de sus descendientes en una sola consulta SQL.
 pub fn move_page(
     conn: &Connection,
     id: &str,
@@ -166,57 +197,83 @@ pub fn move_page(
     position: f64,
 ) -> Result<(), String> {
     if let Some(pid) = parent_id.as_ref() {
-        let d = descendants(conn, id).map_err(|e| e.to_string())?;
-        if d.iter().any(|x| x == pid) {
+        if pid == id {
+            return Err("No se puede mover una página dentro de sí misma".into());
+        }
+        let is_desc: bool = conn
+            .prepare_cached(
+                "WITH RECURSIVE anc(cur) AS (
+                    SELECT parent_id FROM page WHERE id = ?1
+                    UNION ALL
+                    SELECT p.parent_id FROM page p JOIN anc ON p.id = anc.cur WHERE p.parent_id IS NOT NULL
+                 )
+                 SELECT EXISTS(SELECT 1 FROM anc WHERE cur = ?2)",
+            )
+            .map_err(|e| e.to_string())?
+            .query_row(params![pid, id], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        if is_desc {
             return Err("No se puede mover una página dentro de sí misma".into());
         }
     }
-    conn.execute(
-        "UPDATE page SET parent_id=?1, position=?2, updated_at=?3 WHERE id=?4",
-        params![parent_id, position, now_ms(), id],
-    )
-    .map_err(|e| e.to_string())?;
+    conn.prepare_cached("UPDATE page SET parent_id=?1, position=?2, updated_at=?3 WHERE id=?4")
+        .map_err(|e| e.to_string())?
+        .execute(params![parent_id, position, now_ms(), id])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 pub fn trash_page(conn: &Connection, id: &str) -> rusqlite::Result<()> {
-    let now = now_ms();
-    for d in descendants(conn, id)? {
-        conn.execute(
-            "UPDATE page SET deleted_at=?1 WHERE id=?2 AND deleted_at IS NULL",
-            params![now, d],
-        )?;
-    }
+    let mut st = conn.prepare_cached(
+        "WITH RECURSIVE d(id) AS (
+            SELECT ?1
+            UNION ALL
+            SELECT p.id FROM page p JOIN d ON p.parent_id = d.id
+         )
+         UPDATE page SET deleted_at = ?2
+         WHERE id IN (SELECT id FROM d) AND deleted_at IS NULL",
+    )?;
+    st.execute(params![id, now_ms()])?;
     Ok(())
 }
 
 pub fn restore_page(conn: &Connection, id: &str) -> rusqlite::Result<()> {
-    // si el padre sigue en la papelera, la página vuelve a la raíz
-    let parent: Option<String> = conn
-        .query_row("SELECT parent_id FROM page WHERE id=?1", [id], |r| r.get(0))
-        .optional()?
-        .flatten();
-    if let Some(pid) = parent {
-        let pdel: Option<i64> = conn
-            .query_row("SELECT deleted_at FROM page WHERE id=?1", [&pid], |r| r.get(0))
-            .optional()?
-            .flatten();
-        if pdel.is_some() {
-            conn.execute("UPDATE page SET parent_id=NULL WHERE id=?1", [id])?;
-        }
-    }
-    for d in descendants(conn, id)? {
-        conn.execute("UPDATE page SET deleted_at=NULL WHERE id=?1", [d])?;
-    }
+    // Si el padre sigue en la papelera, la página vuelve a la raíz y restaura todo el subárbol en 1 query
+    let mut st = conn.prepare_cached(
+        "WITH RECURSIVE d(id) AS (
+            SELECT ?1
+            UNION ALL
+            SELECT p.id FROM page p JOIN d ON p.parent_id = d.id
+         )
+         UPDATE page
+         SET deleted_at = NULL,
+             parent_id = CASE
+                 WHEN id = ?1 AND EXISTS (
+                     SELECT 1 FROM page parent
+                     WHERE parent.id = page.parent_id AND parent.deleted_at IS NOT NULL
+                 ) THEN NULL
+                 ELSE parent_id
+             END
+         WHERE id IN (SELECT id FROM d)",
+    )?;
+    st.execute([id])?;
     Ok(())
 }
 
 pub fn purge_page(conn: &Connection, id: &str) -> rusqlite::Result<()> {
-    for d in descendants(conn, id)? {
-        conn.execute("DELETE FROM page_fts WHERE page_id=?1", [&d])?;
-    }
-    conn.execute("DELETE FROM page WHERE id=?1", [id])?; // cascade a hijos
-    Ok(())
+    let tx = conn.unchecked_transaction()?;
+    tx.prepare_cached(
+        "WITH RECURSIVE d(id) AS (
+            SELECT ?1
+            UNION ALL
+            SELECT p.id FROM page p JOIN d ON p.parent_id = d.id
+         )
+         DELETE FROM page_fts WHERE page_id IN (SELECT id FROM d)",
+    )?
+    .execute([id])?;
+    tx.prepare_cached("DELETE FROM page WHERE id=?1")?
+        .execute([id])?; // cascade a hijos
+    tx.commit()
 }
 
 pub fn search(conn: &Connection, q: &str) -> rusqlite::Result<Vec<SearchHit>> {
@@ -228,7 +285,7 @@ pub fn search(conn: &Connection, q: &str) -> rusqlite::Result<Vec<SearchHit>> {
         return Ok(vec![]);
     }
     let m = terms.join(" ");
-    let mut st = conn.prepare(
+    let mut st = conn.prepare_cached(
         "SELECT p.id, p.title, p.icon, snippet(page_fts, 2, '', '', '…', 10)
          FROM page_fts JOIN page p ON p.id = page_fts.page_id
          WHERE page_fts MATCH ?1 AND p.deleted_at IS NULL

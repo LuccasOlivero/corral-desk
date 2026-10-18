@@ -1,141 +1,184 @@
-import { DragEvent, useMemo, useState } from "react";
-import { useStore } from "../store";
-import { buildTree, TreeNode } from "../tree";
+import { DragEvent, memo, useMemo, useSyncExternalStore } from "react";
+import { getRootPages, useStore } from "../store";
 import { PageMeta } from "../api";
 
-type Zone = "before" | "into" | "after";
+type Zone = "before" | "after";
 
-function Row({
-  node, depth, siblings, drop, setDrop, dragId, setDragId,
-}: {
-  node: TreeNode<PageMeta>;
-  depth: number;
-  siblings: PageMeta[];
-  drop: { id: string; zone: Zone } | null;
-  setDrop: (d: { id: string; zone: Zone } | null) => void;
-  dragId: string | null;
-  setDragId: (id: string | null) => void;
-}) {
-  const activeId = useStore((s) => s.activeId);
-  const open = useStore((s) => s.open);
-  const expanded = useStore((s) => s.expanded);
-  const toggleExpand = useStore((s) => s.toggleExpand);
-  const newPage = useStore((s) => s.newPage);
-  const trash = useStore((s) => s.trash);
-  const move = useStore((s) => s.move);
-  
-  const p = node.page;
-  const isOpen = !!expanded[p.id];
-  const has = node.children.length > 0;
+// Estado efímero de drag & drop aislado para no re-renderizar toda la lista en cada evento dragover
+let currentDragId: string | null = null;
+let currentDrop: { id: string; zone: Zone } | null = null;
+const dropListeners = new Set<() => void>();
 
-  const zoneOf = (e: DragEvent): Zone => {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const y = (e.clientY - r.top) / r.height;
-    return y < 0.28 ? "before" : y > 0.72 ? "after" : "into";
-  };
+function setDropState(next: { id: string; zone: Zone } | null) {
+  if (currentDrop?.id === next?.id && currentDrop?.zone === next?.zone) return;
+  currentDrop = next;
+  for (const l of dropListeners) l();
+}
 
-  const cls = [
-    "row",
-    activeId === p.id ? "active" : "",
-    drop?.id === p.id ? `drop-${drop.zone}` : "",
-  ].join(" ");
+function subscribeDrop(listener: () => void) {
+  dropListeners.add(listener);
+  return () => dropListeners.delete(listener);
+}
 
-  return (
-    <>
-      <div
-        className={cls}
-        style={{ paddingLeft: 6 + depth * 14 }}
-        draggable
-        onDragStart={(e) => { e.dataTransfer.setData("text/plain", p.id); e.dataTransfer.effectAllowed = "move"; setDragId(p.id); }}
-        onDragEnd={() => { setDragId(null); setDrop(null); }}
-        onDragOver={(e) => {
-          if (!dragId || dragId === p.id) return;
-          e.preventDefault();
-          setDrop({ id: p.id, zone: zoneOf(e) });
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          const id = dragId;
-          const z = drop?.zone ?? zoneOf(e);
-          setDrop(null); setDragId(null);
-          if (!id || id === p.id) return;
-          if (z === "into") return void move(id, p.id);
-          const list = siblings.filter((s) => s.id !== id);
-          const idx = list.findIndex((s) => s.id === p.id);
-          move(id, p.parentId, z === "before" ? idx : idx + 1);
-        }}
-        onClick={() => open(p.id)}
-      >
-        <button className="chev" onClick={(e) => { e.stopPropagation(); toggleExpand(p.id); }}>
-          {has ? (isOpen ? "▾" : "▸") : "·"}
-        </button>
-        <span className="ico">{p.icon ?? "📄"}</span>
-        <span className="name">{p.title || "Sin título"}</span>
-        <span className="hover-actions">
-          <button title="Subpágina" onClick={(e) => { e.stopPropagation(); newPage(p.id); }}>+</button>
-          <button title="Mover a papelera" onClick={(e) => { e.stopPropagation(); trash(p.id); }}>✕</button>
-        </span>
-      </div>
-      {isOpen && node.children.map((c) => (
-        <Row key={c.page.id} node={c} depth={depth + 1} siblings={node.children.map((x) => x.page)}
-          drop={drop} setDrop={setDrop} dragId={dragId} setDragId={setDragId} />
-      ))}
-    </>
+function useDropZone(id: string): Zone | null {
+  return useSyncExternalStore(
+    subscribeDrop,
+    () => (currentDrop?.id === id ? currentDrop.zone : null),
   );
 }
 
-export default function Sidebar({ onLock }: { onLock: () => void }) {
-  const pages = useStore((s) => s.pages);
-  const newPage = useStore((s) => s.newPage);
+const zoneOf = (e: DragEvent): Zone => {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  const y = (e.clientY - r.top) / r.height;
+  return y < 0.5 ? "before" : "after";
+};
+
+const RootRow = memo(function RootRow({
+  page: p,
+  siblings,
+}: {
+  page: PageMeta;
+  siblings: PageMeta[];
+}) {
+  const isActive = useStore((s) => s.activeId === p.id);
   const open = useStore((s) => s.open);
-  const activeId = useStore((s) => s.activeId);
+  const trash = useStore((s) => s.trash);
+  const move = useStore((s) => s.move);
+  const dropZone = useDropZone(p.id);
+
+  const cls = [
+    "row",
+    isActive ? "active" : "",
+    dropZone ? `drop-${dropZone}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div
+      className={cls}
+      style={{ paddingLeft: 6 }}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", p.id);
+        e.dataTransfer.effectAllowed = "move";
+        currentDragId = p.id;
+      }}
+      onDragEnd={() => {
+        currentDragId = null;
+        setDropState(null);
+      }}
+      onDragOver={(e) => {
+        if (!currentDragId || currentDragId === p.id) return;
+        e.preventDefault();
+        setDropState({ id: p.id, zone: zoneOf(e) });
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        const id = currentDragId;
+        const z = (currentDrop?.id === p.id ? currentDrop.zone : null) ?? zoneOf(e);
+        setDropState(null);
+        currentDragId = null;
+        if (!id || id === p.id) return;
+        const list = siblings.filter((s) => s.id !== id);
+        const idx = list.findIndex((s) => s.id === p.id);
+        void move(id, null, z === "before" ? idx : idx + 1);
+      }}
+      onClick={() => open(p.id)}
+    >
+      <span className="chev">·</span>
+      <span className="ico">{p.icon ?? "📄"}</span>
+      <span className="name">{p.title || "Sin título"}</span>
+      <span className="hover-actions">
+        <button
+          title="Mover a papelera"
+          onClick={(e) => {
+            e.stopPropagation();
+            void trash(p.id);
+          }}
+        >
+          ✕
+        </button>
+      </span>
+    </div>
+  );
+});
+
+const SimpleRow = memo(function SimpleRow({ page }: { page: PageMeta }) {
+  const isActive = useStore((s) => s.activeId === page.id);
+  const open = useStore((s) => s.open);
+  return (
+    <div className={"row" + (isActive ? " active" : "")} onClick={() => open(page.id)}>
+      <span className="chev" />
+      <span className="ico">{page.icon ?? "📄"}</span>
+      <span className="name">{page.title || "Sin título"}</span>
+    </div>
+  );
+});
+
+export default memo(function Sidebar({ onLock }: { onLock: () => void }) {
+  const pages = useStore((s) => s.pages);
+  const recentIds = useStore((s) => s.recentIds);
+  const newPage = useStore((s) => s.newPage);
   const setSearch = useStore((s) => s.setSearch);
   const setTrash = useStore((s) => s.setTrash);
 
-  const tree = useMemo(() => buildTree(pages), [pages]);
-  const favs = useMemo(() => pages.filter((p) => p.favorite && p.deletedAt == null), [pages]);
-  const [drop, setDrop] = useState<{ id: string; zone: Zone } | null>(null);
-  const [dragId, setDragId] = useState<string | null>(null);
-  const roots = tree.map((t) => t.page);
+  const recents = useMemo(
+    () =>
+      recentIds
+        .map((rid) => pages.find((p) => p.id === rid && p.deletedAt == null))
+        .filter((p): p is PageMeta => !!p)
+        .slice(0, 3),
+    [recentIds, pages],
+  );
+
+  const favs = useMemo(
+    () => pages.filter((p) => p.favorite && p.deletedAt == null && p.parentId === null),
+    [pages],
+  );
+  const roots = useMemo(() => getRootPages(pages), [pages]);
 
   return (
     <aside className="sidebar">
       <div className="sb-actions">
         <button className="sb-btn" onClick={() => setSearch(true)}>🔍 Buscar <kbd>Ctrl K</kbd></button>
-        <button className="sb-btn" onClick={() => newPage(null)}>＋ Nueva página <kbd>Ctrl N</kbd></button>
+        <button className="sb-btn" onClick={() => void newPage(null)}>＋ Nueva página <kbd>Ctrl N</kbd></button>
       </div>
       <div className="sb-scroll">
+        {recents.length > 0 && (
+          <>
+            <div className="sb-title"><span className="label">vistas recientemente</span></div>
+            {recents.map((p) => (
+              <SimpleRow key={p.id} page={p} />
+            ))}
+          </>
+        )}
         {favs.length > 0 && (
           <>
             <div className="sb-title"><span className="label">favoritos</span></div>
             {favs.map((p) => (
-              <div key={p.id} className={"row" + (activeId === p.id ? " active" : "")} onClick={() => open(p.id)}>
-                <span className="chev" />
-                <span className="ico">{p.icon ?? "📄"}</span>
-                <span className="name">{p.title || "Sin título"}</span>
-              </div>
+              <SimpleRow key={p.id} page={p} />
             ))}
           </>
         )}
         <div className="sb-title">
           <span className="label">páginas</span>
-          <button title="Nueva página" onClick={() => newPage(null)}>+</button>
+          <button title="Nueva página" onClick={() => void newPage(null)}>+</button>
         </div>
-        {tree.length === 0 && <div className="sb-empty">Aún no hay páginas.</div>}
+        {roots.length === 0 && <div className="sb-empty">Aún no hay páginas.</div>}
         <div
-          onDragOver={(e) => { if (dragId) e.preventDefault(); }}
+          onDragOver={(e) => { if (currentDragId) e.preventDefault(); }}
           onDrop={(e) => {
-            // soltar en el espacio vacío = mover a la raíz al final
-            if (e.target === e.currentTarget && dragId) {
-              useStore.getState().move(dragId, null);
-              setDragId(null); setDrop(null);
+            if (e.target === e.currentTarget && currentDragId) {
+              void useStore.getState().move(currentDragId, null);
+              currentDragId = null;
+              setDropState(null);
             }
           }}
           style={{ minHeight: 40 }}
         >
-          {tree.map((n) => (
-            <Row key={n.page.id} node={n} depth={0} siblings={roots}
-              drop={drop} setDrop={setDrop} dragId={dragId} setDragId={setDragId} />
+          {roots.map((p) => (
+            <RootRow key={p.id} page={p} siblings={roots} />
           ))}
         </div>
       </div>
@@ -145,4 +188,4 @@ export default function Sidebar({ onLock }: { onLock: () => void }) {
       </div>
     </aside>
   );
-}
+});

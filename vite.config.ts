@@ -29,4 +29,41 @@ export default defineConfig(() => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  build: {
+    target: "esnext",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("highlight.js") && id.includes("languages")) {
+            return "vendor-hljs-grammars";
+          }
+          if (
+            id.includes("prosemirror") ||
+            id.includes("orderedmap") ||
+            id.includes("w3c-keyname") ||
+            id.includes("rope-sequence") ||
+            id.includes("crelt")
+          ) {
+            return "vendor-prosemirror";
+          }
+          if (
+            id.includes("node_modules/react") ||
+            id.includes("node_modules\\react") ||
+            id.includes("scheduler") ||
+            id.includes("zustand") ||
+            id.includes("@tauri-apps")
+          ) {
+            return "vendor-core";
+          }
+          return "vendor-tiptap";
+        },
+      },
+    },
+  },
 }));
+
+
+
+
+

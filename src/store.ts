@@ -1,12 +1,39 @@
 import { create } from "zustand";
-import { api, PageMeta, PagePatch } from "./api";
-import { isDescendant, positionBetween } from "./tree";
+import { api, evictCachedContent, PageMeta, PagePatch } from "./api";
+import { getDescendantIds, isDescendant, positionBetween } from "./tree";
 
 export type Mode = "ink" | "paper";
+
+export function pushRecentId(recentIds: string[], id: string, max = 3): string[] {
+  if (!id) return recentIds.slice(0, max);
+  return [id, ...recentIds.filter((x) => x !== id)].slice(0, max);
+}
+
+export function getRootPages(pages: PageMeta[]): PageMeta[] {
+  return pages
+    .filter((p) => p.parentId === null && p.deletedAt == null)
+    .sort((a, b) => a.position - b.position);
+}
+
+export function getParentChain(pages: PageMeta[], pageId: string): PageMeta[] {
+  const byId = new Map(pages.map((p) => [p.id, p]));
+  const chain: PageMeta[] = [];
+  const seen = new Set<string>([pageId]);
+  let cur = byId.get(pageId);
+  while (cur?.parentId && !seen.has(cur.parentId)) {
+    const parent = byId.get(cur.parentId);
+    if (!parent || parent.deletedAt != null) break;
+    seen.add(parent.id);
+    chain.unshift(parent);
+    cur = parent;
+  }
+  return chain;
+}
 
 interface State {
   pages: PageMeta[];
   activeId: string | null;
+  recentIds: string[];
   mode: Mode;
   sidebarOpen: boolean;
   searchOpen: boolean;
@@ -14,7 +41,7 @@ interface State {
   expanded: Record<string, boolean>;
   load: () => Promise<void>;
   open: (id: string | null) => void;
-  newPage: (parentId?: string | null) => Promise<void>;
+  newPage: (parentId?: string | null, options?: { openAfterCreate?: boolean }) => Promise<PageMeta>;
   patch: (id: string, p: PagePatch) => Promise<void>;
   trash: (id: string) => Promise<void>;
   restore: (id: string) => Promise<void>;
@@ -32,9 +59,22 @@ interface State {
 
 const initialMode = (): Mode => (localStorage.getItem("corral-mode") === "paper" ? "paper" : "ink");
 
+const initialRecentIds = (): string[] => {
+  try {
+    const raw = localStorage.getItem("corral-recent");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === "string" && x.length > 0).slice(0, 3);
+  } catch {
+    return [];
+  }
+};
+
 export const useStore = create<State>((set, get) => ({
   pages: [],
   activeId: localStorage.getItem("corral-active"),
+  recentIds: initialRecentIds(),
   mode: initialMode(),
   sidebarOpen: true,
   searchOpen: false,
@@ -44,10 +84,10 @@ export const useStore = create<State>((set, get) => ({
   load: async () => {
     const pages = await api.listPages();
     const { activeId } = get();
-    
+
     let targetId = activeId;
     const valid = targetId && pages.some((p) => p.id === targetId && p.deletedAt == null);
-    
+
     if (!valid) {
       const alivePages = pages.filter((p) => p.deletedAt == null);
       if (alivePages.length > 0) {
@@ -64,26 +104,56 @@ export const useStore = create<State>((set, get) => ({
       localStorage.removeItem("corral-active");
     }
 
-    set({ pages, activeId: targetId });
+    const aliveIds = new Set(pages.filter((p) => p.deletedAt == null).map((p) => p.id));
+    const filteredRecent = get().recentIds.filter((rid) => aliveIds.has(rid));
+    const nextRecent = targetId ? pushRecentId(filteredRecent, targetId) : filteredRecent.slice(0, 3);
+    localStorage.setItem("corral-recent", JSON.stringify(nextRecent));
+
+    set({ pages, activeId: targetId, recentIds: nextRecent });
   },
 
   open: (id) => {
-    if (id) localStorage.setItem("corral-active", id);
-    else localStorage.removeItem("corral-active");
-    set({ activeId: id });
+    const prevActive = get().activeId;
+    if (id) {
+      const nextRecent = pushRecentId(get().recentIds, id);
+      localStorage.setItem("corral-recent", JSON.stringify(nextRecent));
+      if (prevActive !== id) {
+        localStorage.setItem("corral-active", id);
+        set({ activeId: id, recentIds: nextRecent });
+      } else {
+        set({ recentIds: nextRecent });
+      }
+      return;
+    }
+    if (prevActive === null) return;
+    localStorage.removeItem("corral-active");
+    set({ activeId: null });
   },
 
-  newPage: async (parentId = null) => {
+  newPage: async (parentId = null, options) => {
     const page = await api.createPage(parentId);
     set((s) => ({
       pages: [...s.pages, page],
       expanded: parentId ? { ...s.expanded, [parentId]: true } : s.expanded,
     }));
-    get().open(page.id);
+    if (options?.openAfterCreate !== false) {
+      get().open(page.id);
+    }
+    return page;
   },
 
   patch: async (id, p) => {
-    // actualización optimista de metadatos
+    const cur = get().pages.find((x) => x.id === id);
+    if (cur && p.content === undefined && p.body === undefined) {
+      const sameTitle = p.title === undefined || p.title === cur.title;
+      const sameIcon = p.icon === undefined || (p.icon || null) === cur.icon;
+      const sameCover = p.cover === undefined || (p.cover || null) === cur.cover;
+      const sameFav = p.favorite === undefined || p.favorite === cur.favorite;
+      if (sameTitle && sameIcon && sameCover && sameFav) return;
+    }
+
+    const now = Date.now();
+    // actualización optimista única de metadatos (evita doble re-render tras IPC)
     set((s) => ({
       pages: s.pages.map((x) =>
         x.id === id
@@ -93,29 +163,68 @@ export const useStore = create<State>((set, get) => ({
               ...(p.icon !== undefined ? { icon: p.icon || null } : {}),
               ...(p.cover !== undefined ? { cover: p.cover || null } : {}),
               ...(p.favorite !== undefined ? { favorite: p.favorite } : {}),
+              updatedAt: now,
             }
           : x,
       ),
     }));
-    const meta = await api.updatePage(id, p);
-    set((s) => ({ pages: s.pages.map((x) => (x.id === id ? meta : x)) }));
+    await api.updatePage(id, p);
   },
 
   trash: async (id) => {
+    const now = Date.now();
+    const { pages, activeId, recentIds } = get();
+    const ids = getDescendantIds(pages, id);
+    const nextPages = pages.map((p) =>
+      ids.has(p.id) && p.deletedAt == null ? { ...p, deletedAt: now } : p,
+    );
+    const nextActive = activeId && ids.has(activeId) ? null : activeId;
+    if (nextActive !== activeId) {
+      if (nextActive) localStorage.setItem("corral-active", nextActive);
+      else localStorage.removeItem("corral-active");
+    }
+    const nextRecent = recentIds.filter((rid) => !ids.has(rid));
+    localStorage.setItem("corral-recent", JSON.stringify(nextRecent));
+    set({ pages: nextPages, activeId: nextActive, recentIds: nextRecent });
     await api.trashPage(id);
-    await get().load();
-    const { activeId, pages } = get();
-    if (activeId && pages.find((p) => p.id === activeId)?.deletedAt != null) get().open(null);
   },
 
   restore: async (id) => {
+    const { pages } = get();
+    const ids = getDescendantIds(pages, id);
+    const target = pages.find((p) => p.id === id);
+    const parentStillDeleted =
+      target?.parentId != null &&
+      pages.find((p) => p.id === target.parentId)?.deletedAt != null;
+    set({
+      pages: pages.map((p) => {
+        if (!ids.has(p.id)) return p;
+        return {
+          ...p,
+          deletedAt: null,
+          parentId: p.id === id && parentStillDeleted ? null : p.parentId,
+        };
+      }),
+    });
     await api.restorePage(id);
-    await get().load();
   },
 
   purge: async (id) => {
+    const { pages, activeId, recentIds } = get();
+    const ids = getDescendantIds(pages, id);
+    evictCachedContent(ids);
+    const nextActive = activeId && ids.has(activeId) ? null : activeId;
+    if (nextActive !== activeId) {
+      localStorage.removeItem("corral-active");
+    }
+    const nextRecent = recentIds.filter((rid) => !ids.has(rid));
+    localStorage.setItem("corral-recent", JSON.stringify(nextRecent));
+    set({
+      pages: pages.filter((p) => !ids.has(p.id)),
+      activeId: nextActive,
+      recentIds: nextRecent,
+    });
     await api.purgePage(id);
-    await get().load();
   },
 
   move: async (id, parentId, index) => {
@@ -126,23 +235,29 @@ export const useStore = create<State>((set, get) => ({
       .sort((a, b) => a.position - b.position);
     const idx = index === undefined ? siblings.length : Math.max(0, Math.min(index, siblings.length));
     const position = positionBetween(siblings, idx);
-    await api.movePage(id, parentId, position);
     set((s) => ({
       pages: s.pages.map((p) => (p.id === id ? { ...p, parentId, position } : p)),
       expanded: parentId ? { ...s.expanded, [parentId]: true } : s.expanded,
     }));
+    await api.movePage(id, parentId, position);
   },
 
   toggleExpand: (id, v) =>
-    set((s) => ({ expanded: { ...s.expanded, [id]: v ?? !s.expanded[id] } })),
+    set((s) => {
+      const next = v ?? !s.expanded[id];
+      if (!!s.expanded[id] === next) return s;
+      return { expanded: { ...s.expanded, [id]: next } };
+    }),
 
   setMode: (mode) => {
+    if (get().mode === mode) return;
     localStorage.setItem("corral-mode", mode);
     set({ mode });
   },
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  setSearch: (searchOpen) => set({ searchOpen }),
-  setTrash: (trashOpen) => set({ trashOpen }),
+  setSearch: (searchOpen) => set((s) => (s.searchOpen === searchOpen ? s : { searchOpen })),
+  setTrash: (trashOpen) => set((s) => (s.trashOpen === trashOpen ? s : { trashOpen })),
   saveStatus: "idle",
-  setSaveStatus: (saveStatus) => set({ saveStatus }),
+  setSaveStatus: (saveStatus) => set((s) => (s.saveStatus === saveStatus ? s : { saveStatus })),
 }));
+

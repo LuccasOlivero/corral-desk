@@ -1,23 +1,16 @@
-import { useEffect, useState } from "react";
-import "@fontsource/archivo/600.css";
-import "@fontsource/archivo/800.css";
-import "@fontsource/archivo/900.css";
-import "@fontsource/inter/400.css";
-import "@fontsource/inter/500.css";
-import "@fontsource/inter/600.css";
-import "@fontsource/jetbrains-mono/400.css";
+import { memo, Suspense, lazy, useCallback, useEffect, useState } from "react";
+import "./styles/fonts.css";
 import "./styles/app.css";
 import { useStore } from "./store";
 import TitleBar from "./components/TitleBar";
-import Sidebar from "./components/Sidebar";
-import PageView from "./components/PageView";
-import { Suspense, lazy } from "react";
-import Lock from "./screens/Lock";
 
-const QuickSearch = lazy(() => import("./components/Modals").then(m => ({ default: m.QuickSearch })));
-const Trash = lazy(() => import("./components/Modals").then(m => ({ default: m.Trash })));
+const Sidebar = lazy(() => import("./components/Sidebar"));
+const PageView = lazy(() => import("./components/PageView"));
+const Lock = lazy(() => import("./screens/Lock"));
+const QuickSearch = lazy(() => import("./components/Modals").then((m) => ({ default: m.QuickSearch })));
+const Trash = lazy(() => import("./components/Modals").then((m) => ({ default: m.Trash })));
 
-function Shell({ onLock }: { onLock: () => void }) {
+const Shell = memo(function Shell({ onLock }: { onLock: () => void }) {
   const load = useStore((s) => s.load);
   const activeId = useStore((s) => s.activeId);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
@@ -26,7 +19,6 @@ function Shell({ onLock }: { onLock: () => void }) {
   const newPage = useStore((s) => s.newPage);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setSearch = useStore((s) => s.setSearch);
-  const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
 
   useEffect(() => { load(); }, [load]);
@@ -42,24 +34,32 @@ function Shell({ onLock }: { onLock: () => void }) {
       }
 
       if (!e.ctrlKey && !e.metaKey) return;
-      
+
       if (k === "k") { e.preventDefault(); setSearch(true); }
       else if (k === "s") { e.preventDefault(); /* solo interceptar para evitar Save As, el autosave ya guarda */ }
       else if (k === "n" && !e.shiftKey) { e.preventDefault(); newPage(null); }
       else if (e.key === "\\") { e.preventDefault(); toggleSidebar(); }
-      else if (k === "l" && e.shiftKey) { e.preventDefault(); setMode(mode === "ink" ? "paper" : "ink"); }
+      else if (k === "l" && e.shiftKey) {
+        e.preventDefault();
+        const currentMode = useStore.getState().mode;
+        setMode(currentMode === "ink" ? "paper" : "ink");
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [newPage, toggleSidebar, setSearch, setMode, mode]);
+  }, [newPage, toggleSidebar, setSearch, setMode]);
 
   return (
     <>
       <div className="body">
-        {sidebarOpen && <Sidebar onLock={onLock} />}
+        <Suspense fallback={null}>
+          {sidebarOpen && <Sidebar onLock={onLock} />}
+        </Suspense>
         <main className="main">
           {activeId ? (
-            <PageView key={activeId} id={activeId} />
+            <Suspense fallback={null}>
+              <PageView key={activeId} id={activeId} />
+            </Suspense>
           ) : (
             <div className="empty">
               <span className="ram ghost" />
@@ -76,7 +76,7 @@ function Shell({ onLock }: { onLock: () => void }) {
       </Suspense>
     </>
   );
-}
+});
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => {
@@ -86,20 +86,23 @@ export default function App() {
 
   useEffect(() => { document.documentElement.setAttribute("data-mode", mode); }, [mode]);
 
-  const handleUnlock = () => {
+  const handleUnlock = useCallback(() => {
     localStorage.setItem("corral-session-open", "true");
     setUnlocked(true);
-  };
+  }, []);
 
-  const handleLock = () => {
+  const handleLock = useCallback(() => {
     localStorage.removeItem("corral-session-open");
     setUnlocked(false);
-  };
+  }, []);
 
   return (
     <div className="app">
       <TitleBar />
-      {unlocked ? <Shell onLock={handleLock} /> : <Lock onUnlock={handleUnlock} />}
+      <Suspense fallback={null}>
+        {unlocked ? <Shell onLock={handleLock} /> : <Lock onUnlock={handleUnlock} />}
+      </Suspense>
     </div>
   );
 }
+

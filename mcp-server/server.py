@@ -6,11 +6,15 @@ import uuid
 
 from mcp.server.mcpserver import MCPServer
 
-if len(sys.argv) < 2:
-    print("Usage: python server.py <path-to-corral.db>", file=sys.stderr)
-    sys.exit(1)
+import os
 
-db_path = sys.argv[1]
+default_db = os.path.expanduser(r"~\AppData\Roaming\com.luccas.corral\corral.db")
+if len(sys.argv) >= 2:
+    db_path = sys.argv[1]
+    if not os.path.exists(db_path) and os.path.exists(default_db):
+        db_path = default_db
+else:
+    db_path = default_db
 
 # Setup server
 mcp = MCPServer("corral-mcp", version="0.1.0")
@@ -19,6 +23,9 @@ def get_db():
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA temp_store=MEMORY;")
+    conn.execute("PRAGMA foreign_keys=ON;")
     return conn
 
 def now_ms():
@@ -39,47 +46,56 @@ def corral_read_page(id: str) -> str:
         id: The ID of the page to read
     """
     with get_db() as conn:
-        cur = conn.execute("SELECT id, parent_id, title, icon, cover, position, favorite, deleted_at, updated_at FROM page WHERE id = ?", (id,))
-        meta = cur.fetchone()
-        if not meta:
+        cur = conn.execute(
+            "SELECT id, parent_id, title, icon, cover, position, favorite, deleted_at, updated_at, content FROM page WHERE id = ?",
+            (id,),
+        )
+        row = cur.fetchone()
+        if not row:
             return json.dumps({"error": f"Page not found: {id}"})
-        cur = conn.execute("SELECT content FROM page WHERE id = ?", (id,))
-        content_row = cur.fetchone()
+        data = dict(row)
+        content = data.pop("content", "")
         return json.dumps({
-            "meta": dict(meta),
-            "content": content_row["content"] if content_row else ""
+            "meta": data,
+            "content": content
         }, indent=2)
 
 @mcp.tool()
-def corral_create_page(title: str = "", content: str = "", parent_id: str | None = None) -> str:
+def corral_create_page(title: str = "", content: str | dict | None = "", parent_id: str | None = None, icon: str | None = None, cover: str | None = None, body: str | None = None) -> str:
     """Create a new page in Corral
     Args:
         title: The title of the page
         content: The content of the page
         parent_id: Optional parent page ID
+        icon: Optional icon emoji
+        cover: Optional cover image URL or CSS gradient
+        body: Optional plain text for full-text search
     """
     new_id = str(uuid.uuid4())
     now = now_ms()
+    content_str = json.dumps(content, ensure_ascii=False) if isinstance(content, dict) else (content or "")
     with get_db() as conn:
-        if parent_id:
-            cur = conn.execute("SELECT COALESCE(MAX(position),0)+1 FROM page WHERE parent_id = ?", (parent_id,))
-        else:
-            cur = conn.execute("SELECT COALESCE(MAX(position),0)+1 FROM page WHERE parent_id IS NULL")
+        cur = conn.execute("SELECT COALESCE(MAX(position),0)+1 FROM page WHERE parent_id IS ?", (parent_id,))
         pos_row = cur.fetchone()
         pos = pos_row[0] if pos_row else 1
         
-        conn.execute("INSERT INTO page(id, parent_id, title, content, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                     (new_id, parent_id, title, content, pos, now, now))
-        conn.execute("INSERT INTO page_fts(page_id, title, body) VALUES (?, ?, ?)",
-                     (new_id, title, content))
-        conn.commit()
-        
-        cur = conn.execute("SELECT id, parent_id, title, icon, cover, position, favorite, deleted_at, updated_at FROM page WHERE id = ?", (new_id,))
+        search_body = body if body is not None else content_str
+        cur = conn.execute(
+            """INSERT INTO page(id, parent_id, title, content, icon, cover, position, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               RETURNING id, parent_id, title, icon, cover, position, favorite, deleted_at, updated_at""",
+            (new_id, parent_id, title, content_str, icon, cover, pos, now, now),
+        )
         meta = cur.fetchone()
+        conn.execute(
+            "INSERT INTO page_fts(page_id, title, body) VALUES (?, ?, ?)",
+            (new_id, title, search_body),
+        )
+        conn.commit()
         return json.dumps(dict(meta) if meta else {}, indent=2)
 
 @mcp.tool()
-def corral_update_page(id: str, title: str | None = None, icon: str | None = None, cover: str | None = None, content: str | None = None, body: str | None = None, favorite: bool | None = None) -> str:
+def corral_update_page(id: str, title: str | None = None, icon: str | None = None, cover: str | None = None, content: str | dict | None = None, body: str | None = None, favorite: bool | None = None) -> str:
     """Update an existing page in Corral
     Args:
         id: The ID of the page to update
@@ -91,33 +107,53 @@ def corral_update_page(id: str, title: str | None = None, icon: str | None = Non
         favorite: Optional favorite toggle
     """
     now = now_ms()
+    has_title = title is not None
+    has_icon = icon is not None
+    icon_val = None if icon == "" else icon
+    has_cover = cover is not None
+    cover_val = None if cover == "" else cover
+    has_content = content is not None
+    content_val = json.dumps(content, ensure_ascii=False) if isinstance(content, dict) else content
+    has_body = body is not None
+    has_fav = favorite is not None
+    fav_val = (1 if favorite else 0) if has_fav else None
+
     with get_db() as conn:
-        cur = conn.execute("SELECT id FROM page WHERE id = ?", (id,))
-        if not cur.fetchone():
-            return json.dumps({"error": f"Page not found: {id}"})
-        
-        if title is not None:
-            conn.execute("UPDATE page SET title = ? WHERE id = ?", (title, id))
-            conn.execute("UPDATE page_fts SET title = ? WHERE page_id = ?", (title, id))
-        if icon is not None:
-            val = None if icon == "" else icon
-            conn.execute("UPDATE page SET icon = ? WHERE id = ?", (val, id))
-        if cover is not None:
-            val = None if cover == "" else cover
-            conn.execute("UPDATE page SET cover = ? WHERE id = ?", (val, id))
-        if content is not None:
-            conn.execute("UPDATE page SET content = ? WHERE id = ?", (content, id))
-        if body is not None:
-            conn.execute("UPDATE page_fts SET body = ? WHERE page_id = ?", (body, id))
-        if favorite is not None:
-            conn.execute("UPDATE page SET favorite = ? WHERE id = ?", (1 if favorite else 0, id))
-            
-        conn.execute("UPDATE page SET updated_at = ? WHERE id = ?", (now, id))
-        conn.commit()
-        
-        cur = conn.execute("SELECT id, parent_id, title, icon, cover, position, favorite, deleted_at, updated_at FROM page WHERE id = ?", (id,))
+        cur = conn.execute(
+            """UPDATE page SET
+                title = CASE WHEN ? THEN ? ELSE title END,
+                icon = CASE WHEN ? THEN ? ELSE icon END,
+                cover = CASE WHEN ? THEN ? ELSE cover END,
+                content = CASE WHEN ? THEN ? ELSE content END,
+                favorite = CASE WHEN ? THEN ? ELSE favorite END,
+                updated_at = ?
+               WHERE id = ?
+               RETURNING id, parent_id, title, icon, cover, position, favorite, deleted_at, updated_at""",
+            (
+                has_title, title,
+                has_icon, icon_val,
+                has_cover, cover_val,
+                has_content, content_val,
+                has_fav, fav_val,
+                now,
+                id,
+            ),
+        )
         meta = cur.fetchone()
-        return json.dumps(dict(meta) if meta else {}, indent=2)
+        if not meta:
+            return json.dumps({"error": f"Page not found: {id}"})
+
+        if has_title or has_body:
+            conn.execute(
+                """UPDATE page_fts SET
+                    title = CASE WHEN ? THEN ? ELSE title END,
+                    body = CASE WHEN ? THEN ? ELSE body END
+                   WHERE page_id = ?""",
+                (has_title, title, has_body, body, id),
+            )
+        conn.commit()
+        return json.dumps(dict(meta), indent=2)
+
 
 @mcp.tool()
 def corral_search(query: str) -> str:

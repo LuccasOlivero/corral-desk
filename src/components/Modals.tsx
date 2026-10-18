@@ -1,32 +1,58 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { api, SearchHit } from "../api";
 import { useStore } from "../store";
 
-export function QuickSearch() {
+export const QuickSearch = memo(function QuickSearch() {
   const setSearch = useStore((s) => s.setSearch);
   const open = useStore((s) => s.open);
   const pages = useStore((s) => s.pages);
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [remoteHits, setRemoteHits] = useState<SearchHit[]>([]);
   const [sel, setSel] = useState(0);
   const ref = useRef<HTMLInputElement>(null);
 
+  const rootIdSet = useMemo(
+    () => new Set(pages.filter((p) => p.deletedAt == null && p.parentId === null).map((p) => p.id)),
+    [pages],
+  );
+
+  const recentHits = useMemo<SearchHit[]>(
+    () =>
+      pages
+        .filter((p) => p.deletedAt == null && p.parentId === null)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 8)
+        .map((p) => ({ id: p.id, title: p.title, icon: p.icon, snippet: "" })),
+    [pages],
+  );
+
   useEffect(() => { ref.current?.focus(); }, []);
+
+  const trimmed = q.trim();
   useEffect(() => {
-    let live = true;
-    if (!q.trim()) {
-      // sin consulta: páginas recientes
-      const recent = [...pages].filter((p) => p.deletedAt == null).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 8)
-        .map((p) => ({ id: p.id, title: p.title, icon: p.icon, snippet: "" }));
-      setHits(recent); setSel(0);
+    if (!trimmed) {
+      setSel(0);
       return;
     }
+    let live = true;
     const h = window.setTimeout(() => {
-      api.search(q).then((r) => { if (live) { setHits(r); setSel(0); } }).catch(() => live && setHits([]));
+      api
+        .search(trimmed)
+        .then((r) => {
+          if (live) {
+            setRemoteHits(r.filter((hit) => rootIdSet.has(hit.id)));
+            setSel(0);
+          }
+        })
+        .catch(() => live && setRemoteHits([]));
     }, 90);
-    return () => { live = false; window.clearTimeout(h); };
-  }, [q, pages]);
+    return () => {
+      live = false;
+      window.clearTimeout(h);
+    };
+  }, [trimmed, rootIdSet]);
 
+  const hits = trimmed ? remoteHits : recentHits;
   const go = (id: string) => { open(id); setSearch(false); };
 
   return (
@@ -58,14 +84,20 @@ export function QuickSearch() {
       </div>
     </div>
   );
-}
+});
 
-export function Trash() {
+export const Trash = memo(function Trash() {
   const pages = useStore((s) => s.pages);
   const setTrash = useStore((s) => s.setTrash);
   const restore = useStore((s) => s.restore);
   const purge = useStore((s) => s.purge);
-  const items = pages.filter((p) => p.deletedAt != null).sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+  const items = useMemo(
+    () =>
+      pages
+        .filter((p) => p.deletedAt != null)
+        .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0)),
+    [pages],
+  );
   return (
     <div className="overlay" onMouseDown={() => setTrash(false)}>
       <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
@@ -88,4 +120,5 @@ export function Trash() {
       </div>
     </div>
   );
-}
+});
+

@@ -5,6 +5,12 @@
     <link rel="icon" type="image/svg+xml" href="/ram.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Corral</title>
+    <script>
+      document.documentElement.setAttribute(
+        "data-mode",
+        localStorage.getItem("corral-mode") === "paper" ? "paper" : "ink"
+      );
+    </script>
   </head>
 
   <body>
@@ -12,4 +18,5 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+
 

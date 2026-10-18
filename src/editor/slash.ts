@@ -1,5 +1,6 @@
 import { Extension, Editor, Range } from "@tiptap/core";
 import Suggestion, { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
+import { useStore } from "../store";
 
 interface Item {
   title: string;
@@ -13,6 +14,27 @@ const chain = (e: Editor, r: Range) => e.chain().focus().deleteRange(r);
 
 export const ITEMS: Item[] = [
   { title: "Texto", desc: "Párrafo normal", glyph: "T", keywords: "texto parrafo text p", run: (e, r) => chain(e, r).setParagraph().run() },
+  {
+    title: "Página",
+    desc: "Subpágina dentro de esta página",
+    glyph: "📄",
+    keywords: "pagina subpagina page child nota",
+    run: (e, r) => {
+      chain(e, r).run();
+      const parentId = useStore.getState().activeId;
+      if (!parentId) return;
+      void useStore
+        .getState()
+        .newPage(parentId, { openAfterCreate: false })
+        .then((created) => {
+          e.chain()
+            .focus()
+            .insertContent({ type: "subpage", attrs: { pageId: created.id } })
+            .run();
+          useStore.getState().open(created.id);
+        });
+    },
+  },
   { title: "Título 1", desc: "Encabezado grande", glyph: "H1", keywords: "titulo h1 heading 1", run: (e, r) => chain(e, r).setHeading({ level: 1 }).run() },
   { title: "Título 2", desc: "Encabezado mediano", glyph: "H2", keywords: "titulo h2 heading 2", run: (e, r) => chain(e, r).setHeading({ level: 2 }).run() },
   { title: "Título 3", desc: "Encabezado pequeño", glyph: "H3", keywords: "titulo h3 heading 3", run: (e, r) => chain(e, r).setHeading({ level: 3 }).run() },

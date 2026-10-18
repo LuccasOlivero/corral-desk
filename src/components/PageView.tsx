@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import { useStore } from "../store";
-import { api } from "../api";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { memo, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
+import { peekCachedContent } from "../api";
+import { getParentChain, useStore } from "../store";
+import { optimizeAndSaveImage } from "../utils/image";
+import type { InsertSubpageDetail } from "../editor/Editor";
 
 const Editor = lazy(() => import("../editor/Editor"));
 
@@ -16,28 +17,105 @@ const COVERS = [
   "linear-gradient(135deg,#8839ef,#1e66f5)",
 ];
 
-export default function PageView({ id }: { id: string }) {
-  const page = useStore((s) => s.pages.find((p) => p.id === id));
+function extractSubpageIds(raw: string | undefined): Set<string> {
+  const result = new Set<string>();
+  if (!raw) return result;
+  try {
+    const doc = JSON.parse(raw);
+    const visit = (node: unknown) => {
+      if (!node || typeof node !== "object") return;
+      const n = node as { type?: string; attrs?: { pageId?: unknown }; content?: unknown[] };
+      if (n.type === "subpage" && typeof n.attrs?.pageId === "string") {
+        result.add(n.attrs.pageId);
+      }
+      if (Array.isArray(n.content)) {
+        for (const child of n.content) visit(child);
+      }
+    };
+    visit(doc);
+  } catch {
+    // ignore invalid json
+  }
+  return result;
+}
+
+export default memo(function PageView({ id }: { id: string }) {
+  const pages = useStore((s) => s.pages);
+  const page = useMemo(() => pages.find((p) => p.id === id), [pages, id]);
   const patch = useStore((s) => s.patch);
+  const open = useStore((s) => s.open);
+  const newPage = useStore((s) => s.newPage);
+  const trash = useStore((s) => s.trash);
   const [title, setTitle] = useState(page?.title ?? "");
   const [picker, setPicker] = useState(false);
+  const [rawContent, setRawContent] = useState<string | undefined>(() => peekCachedContent(id));
   const t = useRef<number | undefined>(undefined);
+  const dirtyRef = useRef(false);
+  const latestTitleRef = useRef(title);
+  latestTitleRef.current = title;
   const titleRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setTitle(page?.title ?? "");
+    dirtyRef.current = false;
     setPicker(false);
+    setRawContent(peekCachedContent(id));
     if (page && !page.title) titleRef.current?.focus();
+    return () => {
+      if (dirtyRef.current) {
+        window.clearTimeout(t.current);
+        dirtyRef.current = false;
+        patch(id, { title: latestTitleRef.current });
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    const onContentSync = (ev: Event) => {
+      const custom = ev as CustomEvent<{ pageId: string; content: string }>;
+      if (custom.detail?.pageId === id) {
+        setRawContent(custom.detail.content);
+      }
+    };
+    window.addEventListener("corral:content-sync", onContentSync);
+    return () => window.removeEventListener("corral:content-sync", onContentSync);
+  }, [id]);
+
+  // Sincronizar si el título cambia externamente y no hay edición local pendiente
+  useEffect(() => {
+    if (page && !dirtyRef.current && page.title !== title) {
+      setTitle(page.title);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page?.title]);
+
+  const parentChain = useMemo(
+    () => (page?.parentId ? getParentChain(pages, id) : []),
+    [pages, id, page?.parentId],
+  );
+
+  const embeddedIds = useMemo(() => extractSubpageIds(rawContent), [rawContent]);
+
+  const unembeddedSubpages = useMemo(
+    () =>
+      pages
+        .filter((p) => p.parentId === id && p.deletedAt == null && !embeddedIds.has(p.id))
+        .sort((a, b) => a.position - b.position),
+    [pages, id, embeddedIds],
+  );
 
   if (!page) return null;
 
   const onTitle = (v: string) => {
     setTitle(v);
+    dirtyRef.current = true;
     window.clearTimeout(t.current);
-    t.current = window.setTimeout(() => patch(id, { title: v }), 250);
+    t.current = window.setTimeout(() => {
+      dirtyRef.current = false;
+      patch(id, { title: v });
+    }, 250);
   };
   const cycleCover = () => {
     const i = COVERS.indexOf(page.cover ?? "");
@@ -46,15 +124,21 @@ export default function PageView({ id }: { id: string }) {
   const handleUploadCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const buf = new Uint8Array(await file.arrayBuffer());
-    const ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg");
-    const path = await api.saveImage(Array.from(buf), ext);
-    const src = convertFileSrc(path);
+    const src = await optimizeAndSaveImage(file, 1920);
     patch(id, { cover: `url('${src}')` });
+  };
+  const handleCreateSubpage = async () => {
+    const created = await newPage(id, { openAfterCreate: false });
+    const detail: InsertSubpageDetail = { parentId: id, subpageId: created.id, handled: false };
+    window.dispatchEvent(new CustomEvent("corral:insert-subpage", { detail }));
+    if (!detail.handled) {
+      open(created.id);
+    }
   };
 
   return (
     <>
+      <span className="ram ghost page-ghost" aria-hidden="true" />
       {page.cover && (
         <div className="cover" style={{ backgroundImage: page.cover }}>
           <div className="cover-actions">
@@ -64,7 +148,24 @@ export default function PageView({ id }: { id: string }) {
           </div>
         </div>
       )}
-      <div className={"page" + (page.cover ? " has-cover" : "")} style={{ position: "relative" }}>
+      <div className={"page" + (page.cover ? " has-cover" : "")}>
+        {page.parentId !== null && (
+          <nav className="page-breadcrumbs" aria-label="Ruta de navegación">
+            {parentChain.map((anc) => (
+              <span key={anc.id} className="crumb-group">
+                <button className="crumb" onClick={() => open(anc.id)}>
+                  <span>{anc.icon || "📄"}</span>
+                  <span>{anc.title || "Sin título"}</span>
+                </button>
+                <span className="crumb-sep">/</span>
+              </span>
+            ))}
+            <span className="crumb current">
+              <span>{page.icon || "📄"}</span>
+              <span>{page.title || "Sin título"}</span>
+            </span>
+          </nav>
+        )}
         {page.icon && <div className="page-ico" onClick={() => setPicker(!picker)}>{page.icon}</div>}
         <div className="page-tools">
           {!page.icon && <button className="btn" onClick={() => setPicker(!picker)}>＋ Ícono</button>}
@@ -72,6 +173,7 @@ export default function PageView({ id }: { id: string }) {
           <button className="btn" onClick={() => patch(id, { favorite: !page.favorite })}>
             {page.favorite ? "★ Favorita" : "☆ Favorito"}
           </button>
+          <button className="btn" onClick={handleCreateSubpage}>＋ Subpágina</button>
         </div>
         {picker && (
           <div className="emoji-pop">
@@ -88,15 +190,52 @@ export default function PageView({ id }: { id: string }) {
           value={title}
           onChange={(e) => onTitle(e.target.value)}
           onBlur={() => {
-            window.clearTimeout(t.current);
-            patch(id, { title });
+            if (dirtyRef.current) {
+              window.clearTimeout(t.current);
+              dirtyRef.current = false;
+              patch(id, { title });
+            }
           }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); document.querySelector<HTMLElement>(".tiptap")?.focus(); } }}
         />
+        {unembeddedSubpages.length > 0 && (
+          <div className="page-subpages">
+            {unembeddedSubpages.map((sub) => (
+              <div
+                key={sub.id}
+                className="subpage-block"
+                onClick={() => open(sub.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    open(sub.id);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <span className="subpage-ico">{sub.icon || "📄"}</span>
+                <span className="subpage-title">{sub.title || "Sin título"}</span>
+                <span className="subpage-actions">
+                  <button
+                    title="Mover a papelera"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void trash(sub.id);
+                    }}
+                  >
+                    ✕
+                  </button>
+                  <span className="subpage-arrow">→</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
         <Suspense fallback={null}>
           <Editor key={id} pageId={id} />
         </Suspense>
       </div>
     </>
   );
-}
+});
