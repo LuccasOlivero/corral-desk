@@ -198,6 +198,11 @@ pub fn run() {
             std::fs::create_dir_all(&assets).expect("create_dir assets");
             let conn = db::open(&dir.join("corral.db")).expect("open db");
             app.manage(AppState { conn: Mutex::new(conn), assets_dir: assets });
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
