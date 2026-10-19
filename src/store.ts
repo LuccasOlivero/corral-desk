@@ -3,6 +3,7 @@ import { api, evictCachedContent, PageMeta, PagePatch } from "./api";
 import { getDescendantIds, isDescendant, positionBetween } from "./tree";
 
 export type Mode = "ink" | "paper";
+export type PageViewTab = "doc" | "tasks" | "stats";
 
 export function pushRecentId(recentIds: string[], id: string, max = 3): string[] {
   if (!id) return recentIds.slice(0, max);
@@ -38,6 +39,8 @@ interface State {
   sidebarOpen: boolean;
   searchOpen: boolean;
   trashOpen: boolean;
+  globalStatsOpen: boolean;
+  pageTabs: Record<string, PageViewTab>;
   expanded: Record<string, boolean>;
   load: () => Promise<void>;
   open: (id: string | null) => void;
@@ -53,6 +56,8 @@ interface State {
   toggleSidebar: () => void;
   setSearch: (v: boolean) => void;
   setTrash: (v: boolean) => void;
+  setGlobalStats: (v: boolean) => void;
+  setPageTab: (pageId: string, tab: PageViewTab) => void;
   saveStatus: "idle" | "saving" | "saved";
   setSaveStatus: (status: "idle" | "saving" | "saved") => void;
 }
@@ -79,6 +84,8 @@ export const useStore = create<State>((set, get) => ({
   sidebarOpen: true,
   searchOpen: false,
   trashOpen: false,
+  globalStatsOpen: false,
+  pageTabs: {},
   expanded: {},
 
   load: async () => {
@@ -119,15 +126,15 @@ export const useStore = create<State>((set, get) => ({
       localStorage.setItem("corral-recent", JSON.stringify(nextRecent));
       if (prevActive !== id) {
         localStorage.setItem("corral-active", id);
-        set({ activeId: id, recentIds: nextRecent });
+        set({ activeId: id, recentIds: nextRecent, globalStatsOpen: false });
       } else {
-        set({ recentIds: nextRecent });
+        set({ recentIds: nextRecent, globalStatsOpen: false });
       }
       return;
     }
-    if (prevActive === null) return;
+    if (prevActive === null && !get().globalStatsOpen) return;
     localStorage.removeItem("corral-active");
-    set({ activeId: null });
+    set({ activeId: null, globalStatsOpen: false });
   },
 
   newPage: async (parentId = null, options) => {
@@ -153,7 +160,6 @@ export const useStore = create<State>((set, get) => ({
     }
 
     const now = Date.now();
-    // actualización optimista única de metadatos (evita doble re-render tras IPC)
     set((s) => ({
       pages: s.pages.map((x) =>
         x.id === id
@@ -257,7 +263,14 @@ export const useStore = create<State>((set, get) => ({
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setSearch: (searchOpen) => set((s) => (s.searchOpen === searchOpen ? s : { searchOpen })),
   setTrash: (trashOpen) => set((s) => (s.trashOpen === trashOpen ? s : { trashOpen })),
+  setGlobalStats: (globalStatsOpen) =>
+    set((s) => (s.globalStatsOpen === globalStatsOpen ? s : { globalStatsOpen })),
+  setPageTab: (pageId, tab) =>
+    set((s) => {
+      const cur = s.pageTabs[pageId] ?? "doc";
+      if (cur === tab) return s;
+      return { pageTabs: { ...s.pageTabs, [pageId]: tab } };
+    }),
   saveStatus: "idle",
   setSaveStatus: (saveStatus) => set((s) => (s.saveStatus === saveStatus ? s : { saveStatus })),
 }));
-

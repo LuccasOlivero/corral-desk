@@ -1,10 +1,12 @@
 import { memo, useEffect, useMemo, useRef, useState, lazy, Suspense } from "react";
-import { peekCachedContent } from "../api";
-import { getParentChain, useStore } from "../store";
+import { api, peekCachedContent } from "../api";
+import { getParentChain, PageViewTab, useStore } from "../store";
 import { optimizeAndSaveImage } from "../utils/image";
 import type { InsertSubpageDetail } from "../editor/Editor";
 
 const Editor = lazy(() => import("../editor/Editor"));
+const TaskTracker = lazy(() => import("./TaskTracker"));
+const StatsView = lazy(() => import("./StatsView"));
 
 const EMOJIS = "📄 📝 📒 📚 📌 📎 ✅ ⭐ 💡 🔥 🚀 🎯 🧠 💻 🛠️ 🧪 🎨 🎵 🎬 📷 🏠 🌱 🌍 ☕ 🍎 ✈️ 💰 📅 ❤️ 🐏 🐑 🧩 🔖 📊 🗂️ 🔒 🔑 🎓 🏋️ 🍳".split(" ");
 
@@ -42,6 +44,8 @@ function extractSubpageIds(raw: string | undefined): Set<string> {
 export default memo(function PageView({ id }: { id: string }) {
   const pages = useStore((s) => s.pages);
   const page = useMemo(() => pages.find((p) => p.id === id), [pages, id]);
+  const activeTab: PageViewTab = useStore((s) => s.pageTabs[id] ?? "doc");
+  const setPageTab = useStore((s) => s.setPageTab);
   const patch = useStore((s) => s.patch);
   const open = useStore((s) => s.open);
   const newPage = useStore((s) => s.newPage);
@@ -49,6 +53,7 @@ export default memo(function PageView({ id }: { id: string }) {
   const [title, setTitle] = useState(page?.title ?? "");
   const [picker, setPicker] = useState(false);
   const [rawContent, setRawContent] = useState<string | undefined>(() => peekCachedContent(id));
+  const [taskCount, setTaskCount] = useState<number>(0);
   const t = useRef<number | undefined>(undefined);
   const dirtyRef = useRef(false);
   const latestTitleRef = useRef(title);
@@ -62,7 +67,17 @@ export default memo(function PageView({ id }: { id: string }) {
     setPicker(false);
     setRawContent(peekCachedContent(id));
     if (page && !page.title) titleRef.current?.focus();
+    let cancelled = false;
+    api
+      .getProjectTracker(id)
+      .then((res) => {
+        if (!cancelled) {
+          setTaskCount(res.tasks.filter((x) => x.state !== "closed").length);
+        }
+      })
+      .catch(() => {});
     return () => {
+      cancelled = true;
       if (dirtyRef.current) {
         window.clearTimeout(t.current);
         dirtyRef.current = false;
@@ -83,7 +98,6 @@ export default memo(function PageView({ id }: { id: string }) {
     return () => window.removeEventListener("corral:content-sync", onContentSync);
   }, [id]);
 
-  // Sincronizar si el título cambia externamente y no hay edición local pendiente
   useEffect(() => {
     if (page && !dirtyRef.current && page.title !== title) {
       setTitle(page.title);
@@ -136,6 +150,8 @@ export default memo(function PageView({ id }: { id: string }) {
     }
   };
 
+  const isWide = activeTab === "tasks" || activeTab === "stats";
+
   return (
     <>
       <span className="ram ghost page-ghost" aria-hidden="true" />
@@ -148,7 +164,7 @@ export default memo(function PageView({ id }: { id: string }) {
           </div>
         </div>
       )}
-      <div className={"page" + (page.cover ? " has-cover" : "")}>
+      <div className={"page" + (page.cover ? " has-cover" : "") + (isWide ? " wide-view" : "")}>
         {page.parentId !== null && (
           <nav className="page-breadcrumbs" aria-label="Ruta de navegación">
             {parentChain.map((anc) => (
@@ -168,12 +184,43 @@ export default memo(function PageView({ id }: { id: string }) {
         )}
         {page.icon && <div className="page-ico" onClick={() => setPicker(!picker)}>{page.icon}</div>}
         <div className="page-tools">
+          <div className="page-view-switch" role="tablist" aria-label="Vistas del proyecto">
+            <button
+              role="tab"
+              aria-selected={activeTab === "doc"}
+              className={"btn" + (activeTab === "doc" ? " primary" : "")}
+              onClick={() => setPageTab(id, "doc")}
+            >
+              📝 Documento
+            </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === "tasks"}
+              className={"btn" + (activeTab === "tasks" ? " primary" : "")}
+              onClick={() => setPageTab(id, "tasks")}
+            >
+              🗂 Tasks {taskCount > 0 ? `(${taskCount})` : ""}
+            </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === "stats"}
+              className={"btn" + (activeTab === "stats" ? " primary" : "")}
+              onClick={() => setPageTab(id, "stats")}
+            >
+              📊 Stats
+            </button>
+          </div>
+
+          <span className="page-tools-sep" />
+
           {!page.icon && <button className="btn" onClick={() => setPicker(!picker)}>＋ Ícono</button>}
           {!page.cover && <button className="btn" onClick={cycleCover}>＋ Portada</button>}
           <button className="btn" onClick={() => patch(id, { favorite: !page.favorite })}>
             {page.favorite ? "★ Favorita" : "☆ Favorito"}
           </button>
-          <button className="btn" onClick={handleCreateSubpage}>＋ Subpágina</button>
+          {activeTab === "doc" && (
+            <button className="btn" onClick={handleCreateSubpage}>＋ Subpágina</button>
+          )}
         </div>
         {picker && (
           <div className="emoji-pop">
@@ -198,43 +245,60 @@ export default memo(function PageView({ id }: { id: string }) {
           }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); document.querySelector<HTMLElement>(".tiptap")?.focus(); } }}
         />
-        {unembeddedSubpages.length > 0 && (
-          <div className="page-subpages">
-            {unembeddedSubpages.map((sub) => (
-              <div
-                key={sub.id}
-                className="subpage-block"
-                onClick={() => open(sub.id)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    open(sub.id);
-                  }
-                }}
-                role="button"
-                tabIndex={0}
-              >
-                <span className="subpage-ico">{sub.icon || "📄"}</span>
-                <span className="subpage-title">{sub.title || "Sin título"}</span>
-                <span className="subpage-actions">
-                  <button
-                    title="Mover a papelera"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void trash(sub.id);
+
+        {activeTab === "doc" && (
+          <>
+            {unembeddedSubpages.length > 0 && (
+              <div className="page-subpages">
+                {unembeddedSubpages.map((sub) => (
+                  <div
+                    key={sub.id}
+                    className="subpage-block"
+                    onClick={() => open(sub.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        open(sub.id);
+                      }
                     }}
+                    role="button"
+                    tabIndex={0}
                   >
-                    ✕
-                  </button>
-                  <span className="subpage-arrow">→</span>
-                </span>
+                    <span className="subpage-ico">{sub.icon || "📄"}</span>
+                    <span className="subpage-title">{sub.title || "Sin título"}</span>
+                    <span className="subpage-actions">
+                      <button
+                        title="Mover a papelera"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void trash(sub.id);
+                        }}
+                      >
+                        ✕
+                      </button>
+                      <span className="subpage-arrow">→</span>
+                    </span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+            <Suspense fallback={null}>
+              <Editor key={id} pageId={id} />
+            </Suspense>
+          </>
         )}
-        <Suspense fallback={null}>
-          <Editor key={id} pageId={id} />
-        </Suspense>
+
+        {activeTab === "tasks" && (
+          <Suspense fallback={null}>
+            <TaskTracker key={id} pageId={id} onCountChange={setTaskCount} />
+          </Suspense>
+        )}
+
+        {activeTab === "stats" && (
+          <Suspense fallback={null}>
+            <StatsView key={id} pageId={id} embedded />
+          </Suspense>
+        )}
       </div>
     </>
   );

@@ -2,7 +2,10 @@ mod db;
 
 use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use db::{PageMeta, PagePatch, SearchHit};
+use db::{
+    PageMeta, PagePatch, ProjectCategory, ProjectPhase, ProjectTrackerData, SearchHit,
+    StatsSummary, TaskActivity, TaskCreate, TaskItem, TaskPatch,
+};
 use rusqlite::{Connection, OptionalExtension};
 use std::sync::Mutex;
 use tauri::Manager;
@@ -110,6 +113,82 @@ fn save_image(s: tauri::State<AppState>, bytes: Vec<u8>, ext: String) -> R<Strin
     Ok(path.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn get_project_tracker(s: tauri::State<AppState>, page_id: String) -> R<ProjectTrackerData> {
+    db::get_project_tracker(&*s.conn.lock().map_err(e)?, &page_id).map_err(e)
+}
+
+#[tauri::command]
+fn create_task(s: tauri::State<AppState>, input: TaskCreate) -> R<TaskItem> {
+    db::create_task(&*s.conn.lock().map_err(e)?, input).map_err(e)
+}
+
+#[tauri::command]
+fn update_task(s: tauri::State<AppState>, id: String, patch: TaskPatch) -> R<TaskItem> {
+    db::update_task(&*s.conn.lock().map_err(e)?, &id, patch).map_err(e)
+}
+
+#[tauri::command]
+fn delete_task(s: tauri::State<AppState>, id: String) -> R<()> {
+    db::delete_task(&*s.conn.lock().map_err(e)?, &id).map_err(e)
+}
+
+#[tauri::command]
+fn list_task_activity(s: tauri::State<AppState>, task_id: String) -> R<Vec<TaskActivity>> {
+    db::list_task_activity(&*s.conn.lock().map_err(e)?, &task_id).map_err(e)
+}
+
+#[tauri::command]
+fn add_task_comment(
+    s: tauri::State<AppState>,
+    task_id: String,
+    author: String,
+    body: String,
+    via_mcp: Option<bool>,
+) -> R<TaskActivity> {
+    db::add_task_comment(&*s.conn.lock().map_err(e)?, &task_id, &author, &body, via_mcp.unwrap_or(false)).map_err(e)
+}
+
+#[tauri::command]
+fn update_task_comment(s: tauri::State<AppState>, id: String, body: String) -> R<TaskActivity> {
+    db::update_task_comment(&*s.conn.lock().map_err(e)?, &id, &body).map_err(e)
+}
+
+#[tauri::command]
+fn delete_task_comment(s: tauri::State<AppState>, id: String) -> R<()> {
+    db::delete_task_comment(&*s.conn.lock().map_err(e)?, &id).map_err(e)
+}
+
+#[tauri::command]
+fn create_phase(s: tauri::State<AppState>, page_id: String, name: String, activate: bool) -> R<ProjectPhase> {
+    db::create_phase(&*s.conn.lock().map_err(e)?, &page_id, &name, activate).map_err(e)
+}
+
+#[tauri::command]
+fn update_phase_status(s: tauri::State<AppState>, id: String, status: String) -> R<ProjectPhase> {
+    db::update_phase_status(&*s.conn.lock().map_err(e)?, &id, &status).map_err(e)
+}
+
+#[tauri::command]
+fn delete_phase(s: tauri::State<AppState>, id: String) -> R<()> {
+    db::delete_phase(&*s.conn.lock().map_err(e)?, &id).map_err(e)
+}
+
+#[tauri::command]
+fn create_category(s: tauri::State<AppState>, page_id: String, name: String) -> R<ProjectCategory> {
+    db::create_category(&*s.conn.lock().map_err(e)?, &page_id, &name).map_err(e)
+}
+
+#[tauri::command]
+fn delete_category(s: tauri::State<AppState>, id: String) -> R<()> {
+    db::delete_category(&*s.conn.lock().map_err(e)?, &id).map_err(e)
+}
+
+#[tauri::command]
+fn get_statistics(s: tauri::State<AppState>, page_id: Option<String>, days: i64) -> R<StatsSummary> {
+    db::get_statistics(&*s.conn.lock().map_err(e)?, page_id.as_deref(), days).map_err(e)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -122,10 +201,34 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            has_user, register, login, list_pages, get_content, create_page, update_page,
-            move_page, trash_page, restore_page, purge_page, search, save_image
+            has_user,
+            register,
+            login,
+            list_pages,
+            get_content,
+            create_page,
+            update_page,
+            move_page,
+            trash_page,
+            restore_page,
+            purge_page,
+            search,
+            save_image,
+            get_project_tracker,
+            create_task,
+            update_task,
+            delete_task,
+            list_task_activity,
+            add_task_comment,
+            update_task_comment,
+            delete_task_comment,
+            create_phase,
+            update_phase_status,
+            delete_phase,
+            create_category,
+            delete_category,
+            get_statistics
         ])
-        .run(tauri::generate_context!()).unwrap_or_else(|e| println!("=== ERROR: {} ===", e));
-        
+        .run(tauri::generate_context!())
+        .unwrap_or_else(|e| println!("=== ERROR: {} ===", e));
 }
-

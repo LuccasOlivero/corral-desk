@@ -40,7 +40,7 @@ const RootRow = memo(function RootRow({
   page: PageMeta;
   siblings: PageMeta[];
 }) {
-  const isActive = useStore((s) => s.activeId === p.id);
+  const isActive = useStore((s) => !s.globalStatsOpen && s.activeId === p.id);
   const open = useStore((s) => s.open);
   const trash = useStore((s) => s.trash);
   const move = useStore((s) => s.move);
@@ -105,7 +105,7 @@ const RootRow = memo(function RootRow({
 });
 
 const SimpleRow = memo(function SimpleRow({ page }: { page: PageMeta }) {
-  const isActive = useStore((s) => s.activeId === page.id);
+  const isActive = useStore((s) => !s.globalStatsOpen && s.activeId === page.id);
   const open = useStore((s) => s.open);
   return (
     <div className={"row" + (isActive ? " active" : "")} onClick={() => open(page.id)}>
@@ -119,9 +119,11 @@ const SimpleRow = memo(function SimpleRow({ page }: { page: PageMeta }) {
 export default memo(function Sidebar({ onLock }: { onLock: () => void }) {
   const pages = useStore((s) => s.pages);
   const recentIds = useStore((s) => s.recentIds);
+  const globalStatsOpen = useStore((s) => s.globalStatsOpen);
   const newPage = useStore((s) => s.newPage);
   const setSearch = useStore((s) => s.setSearch);
   const setTrash = useStore((s) => s.setTrash);
+  const setGlobalStats = useStore((s) => s.setGlobalStats);
 
   const recents = useMemo(
     () =>
@@ -183,6 +185,12 @@ export default memo(function Sidebar({ onLock }: { onLock: () => void }) {
         </div>
       </div>
       <div className="sb-actions" style={{ borderTop: "1px solid var(--line2)" }}>
+        <button
+          className={"sb-btn" + (globalStatsOpen ? " active" : "")}
+          onClick={() => setGlobalStats(!globalStatsOpen)}
+        >
+          📊 Estadísticas
+        </button>
         <button className="sb-btn" onClick={() => setTrash(true)}>🗑 Papelera</button>
         <button className="sb-btn" onClick={onLock}>🔒 Bloquear</button>
       </div>

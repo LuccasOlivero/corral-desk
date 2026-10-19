@@ -263,3 +263,111 @@ describe("Comando Slash '/pagina' (filterItems)", () => {
     expect(pageItem?.desc).toBe("Subpágina dentro de esta página");
   });
 });
+
+import { filterTasks, formatDuration } from "./components/TaskTracker";
+import { TaskItem } from "./api";
+
+const makeTask = (overrides: Partial<TaskItem> & { id: string; seq: number; title: string }): TaskItem => ({
+  pageId: "root-1",
+  description: "",
+  workflow: "todo",
+  state: "open",
+  priority: "medium",
+  taskType: "task",
+  author: "Luccas",
+  assignee: "Luccas",
+  phaseId: null,
+  epicId: null,
+  categories: [],
+  dependsOn: [],
+  realMinutes: 0,
+  aiMinutes: 0,
+  humanMinutes: 0,
+  viaMcp: false,
+  position: 1,
+  createdAt: 1000,
+  updatedAt: 1000,
+  completedAt: null,
+  closedAt: null,
+  commentCount: 0,
+  ...overrides,
+});
+
+describe("Task Tracker & Estadísticas (pageTabs, globalStatsOpen, filterTasks, formatDuration)", () => {
+  it("alterna entre pestañas del proyecto (doc, tasks, stats) y la pestaña global Estadísticas", () => {
+    const store = useStore.getState();
+    store.setPageTab("root-1", "tasks");
+    expect(useStore.getState().pageTabs["root-1"]).toBe("tasks");
+
+    store.setPageTab("root-1", "stats");
+    expect(useStore.getState().pageTabs["root-1"]).toBe("stats");
+
+    store.setGlobalStats(true);
+    expect(useStore.getState().globalStatsOpen).toBe(true);
+
+    // Al abrir una página del sidebar, globalStatsOpen se cierra automáticamente
+    store.open("root-1");
+    expect(useStore.getState().globalStatsOpen).toBe(false);
+    expect(useStore.getState().activeId).toBe("root-1");
+  });
+
+  it("filterTasks separa correctamente Backlog, Board e History y aplica filtros por prioridad, categoría y búsqueda", () => {
+    const tasks: TaskItem[] = [
+      makeTask({ id: "t1", seq: 1144, title: "Migrate Prometheus services", workflow: "todo", priority: "urgent", categories: ["INFRA"] }),
+      makeTask({ id: "t2", seq: 1242, title: "Validate allocated 131k ROCm context", workflow: "qa", priority: "medium", categories: ["AI"] }),
+      makeTask({ id: "t3", seq: 990, title: "Idea en backlog", workflow: "backlog", priority: "low" }),
+      makeTask({ id: "t4", seq: 800, title: "Tarea cerrada en historial", workflow: "done", state: "closed" }),
+    ];
+
+    const boardAll = filterTasks(tasks, {
+      tab: "board",
+      search: "",
+      assignee: "all",
+      epicId: "all",
+      category: "all",
+      state: "all",
+      priority: "all",
+    });
+    expect(boardAll.map((t) => t.id)).toEqual(["t1", "t2"]);
+
+    const backlogAll = filterTasks(tasks, {
+      tab: "backlog",
+      search: "",
+      assignee: "all",
+      epicId: "all",
+      category: "all",
+      state: "all",
+      priority: "all",
+    });
+    expect(backlogAll.map((t) => t.id)).toEqual(["t3"]);
+
+    const historyAll = filterTasks(tasks, {
+      tab: "history",
+      search: "",
+      assignee: "all",
+      epicId: "all",
+      category: "all",
+      state: "all",
+      priority: "all",
+    });
+    expect(historyAll.map((t) => t.id)).toEqual(["t4"]);
+
+    const bySearchSeq = filterTasks(tasks, {
+      tab: "board",
+      search: "#1242",
+      assignee: "all",
+      epicId: "all",
+      category: "all",
+      state: "all",
+      priority: "all",
+    });
+    expect(bySearchSeq.map((t) => t.id)).toEqual(["t2"]);
+  });
+
+  it("formatDuration formatea minutos en horas y minutos legibles", () => {
+    expect(formatDuration(0)).toBe("0m");
+    expect(formatDuration(12)).toBe("12m");
+    expect(formatDuration(60)).toBe("1h");
+    expect(formatDuration(373)).toBe("6h 13m");
+  });
+});

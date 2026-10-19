@@ -6,6 +6,7 @@ import TitleBar from "./components/TitleBar";
 
 const Sidebar = lazy(() => import("./components/Sidebar"));
 const PageView = lazy(() => import("./components/PageView"));
+const StatsView = lazy(() => import("./components/StatsView"));
 const Lock = lazy(() => import("./screens/Lock"));
 const QuickSearch = lazy(() => import("./components/Modals").then((m) => ({ default: m.QuickSearch })));
 const Trash = lazy(() => import("./components/Modals").then((m) => ({ default: m.Trash })));
@@ -13,6 +14,7 @@ const Trash = lazy(() => import("./components/Modals").then((m) => ({ default: m
 const Shell = memo(function Shell({ onLock }: { onLock: () => void }) {
   const load = useStore((s) => s.load);
   const activeId = useStore((s) => s.activeId);
+  const globalStatsOpen = useStore((s) => s.globalStatsOpen);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const searchOpen = useStore((s) => s.searchOpen);
   const trashOpen = useStore((s) => s.trashOpen);
@@ -56,7 +58,11 @@ const Shell = memo(function Shell({ onLock }: { onLock: () => void }) {
           {sidebarOpen && <Sidebar onLock={onLock} />}
         </Suspense>
         <main className="main">
-          {activeId ? (
+          {globalStatsOpen ? (
+            <Suspense fallback={null}>
+              <StatsView pageId={null} />
+            </Suspense>
+          ) : activeId ? (
             <Suspense fallback={null}>
               <PageView key={activeId} id={activeId} />
             </Suspense>
@@ -105,4 +111,3 @@ export default function App() {
     </div>
   );
 }
-
