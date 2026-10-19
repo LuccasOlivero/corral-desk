@@ -28,6 +28,9 @@ export default defineConfig(() => ({
       // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
+    fs: {
+      allow: ["..", "../.."],
+    },
   },
   build: {
     target: "esnext",
